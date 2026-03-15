@@ -1,9 +1,20 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useCanvas } from '../../hooks/useCanvas.js';
+import { useViewport } from '../../hooks/useViewport.js';
 import { causalRelation, intervalSquared } from '../../physics/lorentz.js';
 import { isInCausalFuture, isInCausalPast } from '../../physics/spacetime.js';
+import { getLightConeMissionStatus } from '../../logic/missions.js';
 import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
+import {
+  DEFAULT_LIGHT_CONE_SCENE,
+  decodeLightConeScene,
+  encodeLightConeScene,
+  getNextLightConeLabel,
+} from '../../state/shareableState.js';
 import { Panel } from '../../components/ui/Panel.jsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
 
 const RANGE_X = 8;
 const RANGE_T = 10;
@@ -15,23 +26,191 @@ const RELATION_COLORS = {
   lightlike: colors.lightCone,
 };
 
-export default function LightConeExplorer() {
-  const [events, setEvents] = useState([
-    { id: 1, x: 0, t: 3, label: 'A' },
-    { id: 2, x: 2, t: 7, label: 'B' },
-    { id: 3, x: -3, t: 5, label: 'C' },
-  ]);
-  const [selectedId, setSelectedId] = useState(null);
+export default function LightConeExplorer({ journeyState, onJourneyChange }) {
+  const initialEvents = decodeLightConeScene(journeyState?.lightConeScene ?? DEFAULT_LIGHT_CONE_SCENE);
+  const initialSelected = initialEvents.find((event) => event.label === journeyState?.lightConeSelectedLabel) ?? null;
+  const [events, setEvents] = useState(initialEvents);
+  const [selectedId, setSelectedId] = useState(initialSelected?.id ?? null);
   const [hoveredId, setHoveredId] = useState(null);
   const [showAllCones, setShowAllCones] = useState(true);
   const [showConnections, setShowConnections] = useState(true);
-  const [nextLabel, setNextLabel] = useState('D');
+  const [nextLabel, setNextLabel] = useState(getNextLightConeLabel(initialEvents));
+  const [activeMission, setActiveMission] = useState(journeyState?.lightConeMission ?? 'boundary');
+  const [isDragging, setIsDragging] = useState(false);
   const dragRef = useRef(null);
-  const canvasContainerRef = useRef(null);
-
+  const { isMobile, isTablet } = useViewport();
   const selected = events.find(e => e.id === selectedId);
   const hovered = events.find(e => e.id === hoveredId);
   const highlighted = selected || hovered;
+  const focusRelations = highlighted
+    ? events.filter(e => e.id !== highlighted.id).map(other => {
+      const dt = other.t - highlighted.t;
+      const dx = other.x - highlighted.x;
+      const relation = causalRelation(dt, dx);
+      return {
+        relation,
+        isFuture: isInCausalFuture(highlighted, other),
+        isPast: isInCausalPast(highlighted, other),
+      };
+    })
+    : [];
+  const relationCounts = focusRelations.reduce((acc, rel) => {
+    if (rel.relation === 'lightlike') acc.lightlike += 1;
+    else if (rel.relation === 'spacelike') acc.spacelike += 1;
+    else if (rel.isFuture) acc.future += 1;
+    else if (rel.isPast) acc.past += 1;
+    else acc.timelike += 1;
+    return acc;
+  }, { future: 0, past: 0, spacelike: 0, lightlike: 0, timelike: 0 });
+
+  let storyBeat = {
+    accent: colors.lightCone,
+    badge: `${events.length} event${events.length === 1 ? '' : 's'}`,
+    title: 'Hover an event to turn the diagram into a causal map',
+    body: 'Each event is just a point until you choose a reference event. Hover or select one, then use its light cone to classify which other events are reachable, unreachable, or exactly on the boundary.',
+    question: 'What changes when an event crosses the cone boundary?',
+    answer: 'The interval changes sign. Timelike separation becomes spacelike or vice versa, which flips whether a causal signal is possible.',
+  };
+
+  if (events.length < 2) {
+    storyBeat = {
+      accent: colors.lightCone,
+      badge: 'Need 2 events',
+      title: 'One event by itself has no interval story yet',
+      body: 'Place at least one more event on the diagram. Intervals, causal relations, and cone boundaries only become meaningful when you compare events.',
+      question: 'Why is one point not enough?',
+      answer: 'Because relativity asks about separations between events. The sign of s² belongs to a pair, not to a single isolated point.',
+    };
+  } else if (highlighted && relationCounts.lightlike > 0) {
+    storyBeat = {
+      accent: colors.lightCone,
+      badge: `Event ${highlighted.label}`,
+      title: 'You have an event sitting right on the causal frontier',
+      body: `From ${highlighted.label}, ${relationCounts.lightlike} event${relationCounts.lightlike === 1 ? '' : 's'} lie exactly on the cone. Those are the events light can reach but anything slower cannot overtake.`,
+      question: 'What is special about a lightlike separation?',
+      answer: 'It is the exact boundary between causal access and causal exclusion. Light can connect the two events, but no slower signal can beat the cone.',
+    };
+  } else if (highlighted && relationCounts.spacelike === focusRelations.length) {
+    storyBeat = {
+      accent: colors.spacelike,
+      badge: `Event ${highlighted.label}`,
+      title: 'Everything else is outside this event’s cone',
+      body: `Right now every other event is spacelike separated from ${highlighted.label}. No influence can travel between them without exceeding the speed of light.`,
+      question: 'Can frame changes rescue a spacelike pair?',
+      answer: 'No. Different frames may reorder spacelike events in time, but none can make a causal signal possible between them.',
+    };
+  } else if (highlighted && relationCounts.future + relationCounts.past > 0 && relationCounts.spacelike > 0) {
+    storyBeat = {
+      accent: colors.timelike,
+      badge: `Event ${highlighted.label}`,
+      title: 'The cone is splitting reachable events from unreachable ones',
+      body: `${highlighted.label} has ${relationCounts.future} event${relationCounts.future === 1 ? '' : 's'} in its causal future, ${relationCounts.past} in its causal past, and ${relationCounts.spacelike} outside the cone. One anchor event is enough to partition spacetime.`,
+      question: 'What does the cone really do?',
+      answer: 'It divides spacetime into can affect, can be affected by, and cannot be connected regions. That partition is invariant across frames.',
+    };
+  } else if (highlighted) {
+    storyBeat = {
+      accent: colors.timelike,
+      badge: `Event ${highlighted.label}`,
+      title: 'This event is causally tied to everything you are comparing',
+      body: `Every currently highlighted relation for ${highlighted.label} is timelike. That means all compared events lie inside the future or past cone, where a slower-than-light signal could in principle connect them.`,
+      question: 'Does timelike separation guarantee influence happened?',
+      answer: 'No. It only means influence is possible without breaking relativity. Whether a signal was actually sent is a separate physical story.',
+    };
+  }
+  const labShellStyle = {
+    position: 'relative',
+    maxWidth: 1320,
+    margin: '0 auto',
+    padding: '20px 18px 18px',
+    borderRadius: 26,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,200,50,0.16)',
+    background: `
+      radial-gradient(circle at 10% 12%, rgba(255,200,50,0.16), transparent 22%),
+      radial-gradient(circle at 92% 16%, rgba(255,107,74,0.10), transparent 22%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+  };
+  const labPanelStyle = {
+    background: 'linear-gradient(180deg, rgba(255,200,50,0.08), rgba(255,255,255,0.014))',
+    border: '1px solid rgba(255,200,50,0.14)',
+    borderRadius: 18,
+    boxShadow: '0 16px 32px rgba(0,0,0,0.18)',
+  };
+  const labPanelAltStyle = {
+    ...labPanelStyle,
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,107,74,0.04))',
+    border: '1px solid rgba(255,255,255,0.08)',
+  };
+  const labCanvasStyle = {
+    background: `
+      radial-gradient(circle at top right, rgba(255,200,50,0.12), transparent 26%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+    border: '1px solid rgba(255,200,50,0.18)',
+    borderRadius: 24,
+    padding: 10,
+    boxShadow: '0 20px 40px rgba(0,0,0,0.22)',
+  };
+  const labTitleStyle = {
+    color: 'rgba(255,255,255,0.34)',
+    letterSpacing: '0.18em',
+  };
+  const labCanvasHeight = isMobile ? 360 : isTablet ? 460 : 560;
+  const loadMissionScene = (sceneEvents, anchorId) => {
+    setEvents(sceneEvents);
+    setSelectedId(anchorId);
+    setHoveredId(null);
+    setNextLabel(getNextLightConeLabel(sceneEvents));
+  };
+  const {
+    eventB,
+    eventC,
+    boundaryComplete,
+    acausalRelation,
+    pastFutureComplete,
+    status: labMissionStatus,
+  } = getLightConeMissionStatus(events, activeMission);
+  const labMissions = [
+    {
+      id: 'boundary',
+      title: 'Boundary',
+      summary: 'Turn A and B into a lightlike pair.',
+      objective: 'Load the preset, select A, then drag B until the A↔B interval reaches s² ≈ 0.',
+      successText: 'Lightlike pairs sit exactly on the cone: reachable by light, unreachable by anything slower.',
+      action: () => loadMissionScene([
+        { id: 'mission-a', x: 0, t: 2, label: 'A' },
+        { id: 'mission-b', x: 2.5, t: 5, label: 'B' },
+        { id: 'mission-c', x: -2, t: 7, label: 'C' },
+      ], 'mission-a'),
+    },
+    {
+      id: 'acausal',
+      title: 'Acausal',
+      summary: 'Kick one event cleanly outside A’s cone.',
+      objective: 'Load the preset and drag C until the A↔C relation becomes spacelike.',
+      successText: 'Spacelike separation is the hard no of relativity: frames can reorder the events, but none can create a signal path.',
+      action: () => loadMissionScene([
+        { id: 'mission-a', x: 0, t: 3, label: 'A' },
+        { id: 'mission-b', x: 0.8, t: 6, label: 'B' },
+        { id: 'mission-c', x: 1.2, t: 4.2, label: 'C' },
+      ], 'mission-a'),
+    },
+    {
+      id: 'past-future',
+      title: 'Split Cone',
+      summary: 'Make A own both a causal future and a causal past.',
+      objective: 'Load the preset and drag C into A’s past cone while keeping B in A’s future cone.',
+      successText: 'One anchor event partitions spacetime into past, future, and elsewhere all at once.',
+      action: () => loadMissionScene([
+        { id: 'mission-a', x: 0, t: 5, label: 'A' },
+        { id: 'mission-b', x: 0.8, t: 6.4, label: 'B' },
+        { id: 'mission-c', x: -2.2, t: 4.6, label: 'C' },
+      ], 'mission-a'),
+    },
+  ];
+  const clampPercent = (value) => Math.max(8, Math.min(92, value));
 
   // Coordinate transforms
   const toPixel = useCallback((x, t, W, H) => {
@@ -43,6 +222,10 @@ export default function LightConeExplorer() {
       py: H - m.bottom - (t / RANGE_T) * pH,
     };
   }, []);
+  const toCanvasPercent = (x, t) => ({
+    left: clampPercent(((x + RANGE_X) / (2 * RANGE_X)) * 100),
+    top: clampPercent(100 - (t / RANGE_T) * 100),
+  });
 
   const toSpacetime = useCallback((px, py, W, H) => {
     const m = { top: 30, bottom: 40, left: 50, right: 30 };
@@ -53,21 +236,22 @@ export default function LightConeExplorer() {
       t: ((H - m.bottom - py) / pH) * RANGE_T,
     };
   }, []);
+  const hitRadius = isMobile ? 0.55 : isTablet ? 0.42 : HIT_RADIUS;
 
   // Find event near a spacetime point
   const findHit = useCallback((x, t) => {
     let closest = -1;
-    let minDist = HIT_RADIUS;
+    let minDist = hitRadius;
     events.forEach((e, i) => {
       const d = Math.sqrt((e.x - x) ** 2 + (e.t - t) ** 2);
       if (d < minDist) { minDist = d; closest = i; }
     });
     return closest;
-  }, [events]);
+  }, [events, hitRadius]);
 
-  // Canvas mouse handlers
-  const handleCanvasMouseDown = useCallback((e) => {
-    const canvas = e.target;
+  // Canvas pointer handlers
+  const handleCanvasPointerDown = useCallback((e) => {
+    const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -77,8 +261,11 @@ export default function LightConeExplorer() {
 
     const hitIdx = findHit(coords.x, coords.t);
     if (hitIdx >= 0) {
+      e.preventDefault();
       dragRef.current = events[hitIdx].id;
+      setIsDragging(true);
       setSelectedId(events[hitIdx].id);
+      canvas.setPointerCapture?.(e.pointerId);
     } else {
       // Place new event
       if (coords.t >= 0 && coords.t <= RANGE_T && coords.x >= -RANGE_X && coords.x <= RANGE_X) {
@@ -90,13 +277,13 @@ export default function LightConeExplorer() {
         };
         setEvents(prev => [...prev, newEvent]);
         setSelectedId(newEvent.id);
-        setNextLabel(prev => String.fromCharCode(prev.charCodeAt(0) + 1));
+        setNextLabel(getNextLightConeLabel([...events, newEvent]));
       }
     }
   }, [events, findHit, toSpacetime, nextLabel]);
 
-  const handleCanvasMouseMove = useCallback((e) => {
-    const canvas = e.target;
+  const handleCanvasPointerMove = useCallback((e) => {
+    const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
     const py = e.clientY - rect.top;
@@ -105,6 +292,7 @@ export default function LightConeExplorer() {
     const coords = toSpacetime(px, py, W, H);
 
     if (dragRef.current !== null) {
+      e.preventDefault();
       setEvents(prev => prev.map(ev =>
         ev.id === dragRef.current
           ? { ...ev, x: Math.max(-RANGE_X, Math.min(RANGE_X, coords.x)), t: Math.max(0, Math.min(RANGE_T, coords.t)) }
@@ -113,13 +301,75 @@ export default function LightConeExplorer() {
     } else {
       const hitIdx = findHit(coords.x, coords.t);
       setHoveredId(hitIdx >= 0 ? events[hitIdx].id : null);
-      canvas.style.cursor = hitIdx >= 0 ? 'grab' : 'crosshair';
+      if (!isMobile) {
+        canvas.style.cursor = hitIdx >= 0 ? 'grab' : 'crosshair';
+      }
     }
-  }, [events, findHit, toSpacetime]);
+  }, [events, findHit, isMobile, toSpacetime]);
 
-  const handleCanvasMouseUp = useCallback(() => {
+  const handleCanvasPointerUp = useCallback((e) => {
+    e.currentTarget.releasePointerCapture?.(e.pointerId);
     dragRef.current = null;
-  }, []);
+    setIsDragging(false);
+    if (!isMobile) {
+      e.currentTarget.style.cursor = 'crosshair';
+    }
+  }, [isMobile]);
+
+  const handleCanvasPointerLeave = useCallback((e) => {
+    if (dragRef.current === null) {
+      setHoveredId(null);
+      if (!isMobile) {
+        e.currentTarget.style.cursor = 'crosshair';
+      }
+    }
+  }, [isMobile]);
+
+  useEffect(() => {
+    if (isDragging) return;
+
+    onJourneyChange?.({
+      lightConeMission: activeMission,
+      lightConeScene: encodeLightConeScene(events),
+      lightConeSelectedLabel: selected?.label ?? null,
+    });
+  }, [activeMission, events, isDragging, onJourneyChange, selected]);
+
+  const highlightedAnnotation = highlighted
+    ? {
+      ...toCanvasPercent(highlighted.x, highlighted.t),
+      title: selected?.id === highlighted.id ? `Anchor ${highlighted.label}` : `Inspect ${highlighted.label}`,
+      body: isMobile
+        ? 'Tap and drag this event. Its cone classifies the rest of the diagram.'
+        : 'Drag this event to watch the cone boundary and interval classes update live.',
+    }
+    : null;
+  const missionFocusEvent = activeMission === 'boundary'
+    ? eventB
+    : activeMission === 'acausal'
+      ? eventC
+      : eventC ?? eventB;
+  const missionAnnotation = missionFocusEvent
+    ? {
+      ...toCanvasPercent(missionFocusEvent.x, missionFocusEvent.t),
+      title: activeMission === 'boundary'
+        ? (boundaryComplete ? 'Boundary reached' : 'Aim for cone edge')
+        : activeMission === 'acausal'
+          ? (acausalRelation === 'spacelike' ? 'Outside the cone' : 'Push C outward')
+          : (pastFutureComplete ? 'Past and future built' : 'Split the cone'),
+      body: activeMission === 'boundary'
+        ? (boundaryComplete
+          ? 'A and B now sit on the lightlike boundary with s² close to zero.'
+          : 'Drag B until the A↔B separation lands exactly on the cone.')
+        : activeMission === 'acausal'
+          ? (acausalRelation === 'spacelike'
+            ? 'C is now causally unreachable from A in every inertial frame.'
+            : 'Move C far enough from A that the interval turns spacelike.')
+          : (pastFutureComplete
+            ? 'A now anchors both a causal future and a causal past.'
+            : 'Keep B in A’s future cone while dragging C into A’s past cone.'),
+    }
+    : null;
 
   // Compute all pairs
   const pairs = [];
@@ -137,8 +387,6 @@ export default function LightConeExplorer() {
   const canvasRef = useCanvas(
     (ctx, W, H) => {
       const m = { top: 30, bottom: 40, left: 50, right: 30 };
-      const pW = W - m.left - m.right;
-      const pH = H - m.top - m.bottom;
 
       const toP = (x, t) => toPixel(x, t, W, H);
 
@@ -306,13 +554,21 @@ export default function LightConeExplorer() {
       ctx.font = `9px ${MONO}`;
       ctx.textAlign = 'center';
       ctx.fillText('Click to place events · Drag to move · Hover to highlight causal structure', W / 2, H - m.bottom + 28);
-    },
-    [events, selectedId, hoveredId, highlighted, showAllCones, showConnections, pairs]
+    }
   );
 
   return (
-    <div>
-      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+    <div style={labShellStyle}>
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: 'radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px)',
+        backgroundSize: '18px 18px',
+        maskImage: 'radial-gradient(circle at center, black, transparent 88%)',
+        pointerEvents: 'none',
+      }}
+      />
+      <div style={{ textAlign: 'center', marginBottom: isMobile ? 14 : 18, position: 'relative', zIndex: 1 }}>
         <h1 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 400, color: '#fff', margin: 0, fontStyle: 'italic' }}>
           Light Cone Explorer
         </h1>
@@ -321,10 +577,19 @@ export default function LightConeExplorer() {
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 14, maxWidth: 1280, margin: '0 auto', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: isMobile ? 12 : 16, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
         {/* Left panel */}
-        <div style={{ flex: '0 0 240px', minWidth: 220, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Panel title="Controls">
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 2 : 0 }}>
+          <GuidedMissionPanel
+            title="Guided Experiments"
+            accent={colors.lightCone}
+            missions={labMissions}
+            activeId={activeMission}
+            onSelect={setActiveMission}
+            status={labMissionStatus}
+          />
+
+          <Panel title="Controls" style={labPanelStyle} titleStyle={labTitleStyle}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10, color: colors.textDim, marginBottom: 6, cursor: 'pointer' }}>
               <input type="checkbox" checked={showAllCones} onChange={() => setShowAllCones(!showAllCones)} style={{ accentColor: colors.lightCone }} />
               Show all light cones
@@ -345,7 +610,7 @@ export default function LightConeExplorer() {
           </Panel>
 
           {/* Event pairs table */}
-          <Panel title="Event Pairs">
+          <Panel title="Event Pairs" style={labPanelAltStyle} titleStyle={labTitleStyle}>
             {pairs.length === 0 ? (
               <div style={{ fontSize: 10, color: colors.textGhost, fontStyle: 'italic' }}>
                 Place 2+ events to see relationships
@@ -378,7 +643,7 @@ export default function LightConeExplorer() {
           </Panel>
 
           {/* Legend */}
-          <Panel title="Causal Relations">
+          <Panel title="Causal Relations" style={labPanelStyle} titleStyle={labTitleStyle}>
             <div style={{ fontSize: 10, lineHeight: 2 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: colors.timelike }} />
@@ -397,37 +662,66 @@ export default function LightConeExplorer() {
         </div>
 
         {/* Center: main diagram */}
-        <div style={{ flex: 1, minWidth: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{
-            background: 'rgba(255,255,255,0.015)', border: `1px solid ${colors.border}`,
-            borderRadius: 6, padding: 8,
-          }}>
+        <div style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: 1 }}>
+          <div style={labCanvasStyle}>
             <canvas
               ref={canvasRef}
-              style={{ width: '100%', height: 560, display: 'block' }}
-              onMouseDown={handleCanvasMouseDown}
-              onMouseMove={handleCanvasMouseMove}
-              onMouseUp={handleCanvasMouseUp}
-              onMouseLeave={handleCanvasMouseUp}
+              style={{ width: '100%', height: labCanvasHeight, display: 'block', touchAction: 'none' }}
+              onPointerDown={handleCanvasPointerDown}
+              onPointerMove={handleCanvasPointerMove}
+              onPointerUp={handleCanvasPointerUp}
+              onPointerCancel={handleCanvasPointerUp}
+              onPointerLeave={handleCanvasPointerLeave}
             />
+            {highlightedAnnotation && (
+              <CanvasAnnotation
+                left={highlightedAnnotation.left}
+                top={highlightedAnnotation.top}
+                accent={colors.lightCone}
+                title={highlightedAnnotation.title}
+                body={highlightedAnnotation.body}
+                align={highlightedAnnotation.left > 60 ? 'right' : 'left'}
+                compact={isMobile}
+              />
+            )}
+            {missionAnnotation && missionFocusEvent?.id !== highlighted?.id && (
+              <CanvasAnnotation
+                left={missionAnnotation.left}
+                top={missionAnnotation.top}
+                accent={activeMission === 'acausal' ? colors.spacelike : colors.lightCone}
+                title={missionAnnotation.title}
+                body={missionAnnotation.body}
+                align={missionAnnotation.left > 60 ? 'right' : 'left'}
+                compact={isMobile}
+              />
+            )}
+            {isMobile && !highlighted && (
+              <CanvasAnnotation
+                left={16}
+                top={88}
+                accent={colors.lightCone}
+                title="Touch mode"
+                body="Tap a point to select it, drag to move it, or tap empty space to place a new event."
+                align="left"
+                compact
+              />
+            )}
           </div>
 
-          {/* Insight */}
-          <div style={{
-            background: colors.panelBg, border: `1px solid ${colors.border}`,
-            borderRadius: 6, padding: 14, fontSize: 10.5, lineHeight: 1.7, color: colors.textDim,
-          }}>
-            <span style={{ color: 'rgba(255,255,255,0.6)' }}>What to explore:</span>{' '}
-            Drag an event across another's light cone boundary. Watch the pair label flip from "timelike" to "spacelike."
-            Timelike-separated events <em>can</em> be causally connected — a signal can travel between them.
-            Spacelike-separated events <em>cannot</em> influence each other — no signal, not even light, can bridge the gap.
-            The light cone (s²=0) is the boundary of causality itself.
-          </div>
+          <StoryCallout
+            label="Live read"
+            accent={storyBeat.accent}
+            badge={storyBeat.badge}
+            title={storyBeat.title}
+            body={storyBeat.body}
+            question={storyBeat.question}
+            answer={storyBeat.answer}
+          />
         </div>
 
         {/* Right: selected event info */}
-        <div style={{ flex: '0 0 200px', minWidth: 180, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Panel title={selected ? `Event ${selected.label}` : 'Selected Event'}>
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 3 : 0 }}>
+          <Panel title={selected ? `Event ${selected.label}` : 'Selected Event'} style={labPanelAltStyle} titleStyle={labTitleStyle}>
             {selected ? (
               <div>
                 <div style={{ fontSize: 10, color: colors.textDim, marginBottom: 8, lineHeight: 1.8 }}>
@@ -459,8 +753,10 @@ export default function LightConeExplorer() {
                 })}
                 <button
                   onClick={() => {
-                    setEvents(prev => prev.filter(e => e.id !== selectedId));
+                    const nextEvents = events.filter((event) => event.id !== selectedId);
+                    setEvents(nextEvents);
                     setSelectedId(null);
+                    setNextLabel(getNextLightConeLabel(nextEvents));
                   }}
                   style={{
                     width: '100%', padding: '6px 0', marginTop: 10,
@@ -477,7 +773,7 @@ export default function LightConeExplorer() {
             )}
           </Panel>
 
-          <Panel title="The Interval">
+          <Panel title="The Interval" style={labPanelStyle} titleStyle={labTitleStyle}>
             <div style={{ fontFamily: DISPLAY, fontSize: 16, color: 'rgba(255,255,255,0.7)', textAlign: 'center', fontStyle: 'italic', lineHeight: 1.6 }}>
               s² = −Δt² + Δx²
             </div>

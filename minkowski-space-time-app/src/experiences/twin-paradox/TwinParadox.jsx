@@ -1,23 +1,94 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { gamma, dtaudt } from '../../physics/lorentz.js';
 import { getTravelerState, integrateProperTime } from '../../physics/worldline.js';
 import { useCanvas } from '../../hooks/useCanvas.js';
 import { useAnimationLoop } from '../../hooks/useAnimationLoop.js';
+import { useViewport } from '../../hooks/useViewport.js';
+import { getTwinMissionStatus } from '../../logic/missions.js';
 import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
 import { Panel } from '../../components/ui/Panel.jsx';
 import { Slider } from '../../components/ui/Slider.jsx';
 import { Toggle } from '../../components/ui/Toggle.jsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
 import { ProperTimeClock } from './ProperTimeClock.jsx';
 import { RateMeter } from './RateMeter.jsx';
 
-export default function TwinParadox() {
-  const [velocity, setVelocity] = useState(0.6);
-  const [tripDistance, setTripDistance] = useState(4);
-  const [accelFraction, setAccelFraction] = useState(0.08);
+function getTwinStoryBeat({
+  currentT,
+  tTotal,
+  travState,
+  tauHomeCurrent,
+  tauTravCurrent,
+  pctLess,
+}) {
+  const ageGap = tauHomeCurrent - tauTravCurrent;
+
+  if (currentT < tTotal * 0.04) {
+    return {
+      accent: colors.lightCone,
+      badge: 'Departure',
+      title: 'The clocks start together, then diverge immediately',
+      body: `At launch the twins agree. The instant the traveler picks up speed, each unit of coordinate time turns into less proper time on the moving path.`,
+      question: 'When does the age gap begin?',
+      answer: 'Right away. Any stretch with spatial motion has dτ < dt, so the gap accumulates continuously from the first moving segment onward.',
+    };
+  }
+
+  if (travState.phase === 'outbound') {
+    return {
+      accent: colors.traveler,
+      badge: `gap ${ageGap.toFixed(2)} yr`,
+      title: 'Cruise is already doing the aging damage',
+      body: `The home twin is ahead by ${ageGap.toFixed(2)} years right now. Nothing exotic is waiting at turnaround: the traveler is simply tracing a shorter proper-time path during outbound motion.`,
+      question: 'Is the traveler losing time only at turnaround?',
+      answer: 'No. Turnaround matters for frame bookkeeping, but the missing proper time is being lost all through the coasting legs.',
+    };
+  }
+
+  if (travState.phase === 'turnaround') {
+    return {
+      accent: colors.travelerAlt,
+      badge: 'Frame flip',
+      title: 'Turnaround exposes the asymmetry',
+      body: `This is the dramatic moment because the traveler switches from outbound to inbound motion. The simultaneity lines swing, making it obvious that the twins are not tracing symmetric histories through spacetime.`,
+      question: 'What is special about turnaround?',
+      answer: 'It does not create the whole age gap by itself. It is where the traveler changes frames, which breaks the apparent symmetry and clarifies why the comparison is not reciprocal.',
+    };
+  }
+
+  if (currentT > tTotal * 0.98) {
+    return {
+      accent: colors.home,
+      badge: `traveler aged ${pctLess}% less`,
+      title: 'Reunion turns geometry into a direct comparison',
+      body: `Now both clocks meet again at the same event, so the age difference becomes physical instead of interpretive. The home twin has accumulated ${tauHomeCurrent.toFixed(2)} years while the traveler has accumulated ${tauTravCurrent.toFixed(2)}.`,
+      question: 'Why is the home twin older at reunion?',
+      answer: 'Because the home twin followed the maximal proper-time path between departure and reunion in flat spacetime, while the traveler took a bent path with dr ≠ 0.',
+    };
+  }
+
+  return {
+    accent: colors.home,
+    badge: `return leg`,
+    title: 'The traveler comes home with the deficit already built in',
+    body: `On the inbound leg the gap is still growing, and the reunion event is getting closer. The key fact is unchanged: the moving worldline continues to accumulate proper time more slowly than the stay-at-home path.`,
+    question: 'What should you watch on the return?',
+    answer: 'Compare the proper-time bars and the shaded dτ/dt area. They show the gap arriving home with the traveler rather than appearing suddenly at the end.',
+  };
+}
+
+export default function TwinParadox({ journeyState, onJourneyChange }) {
+  const [velocity, setVelocity] = useState(journeyState?.beta ?? 0.6);
+  const [tripDistance, setTripDistance] = useState(journeyState?.tripDistance ?? 4);
+  const [accelFraction, setAccelFraction] = useState(journeyState?.accelFraction ?? 0.08);
   const [showSimult, setShowSimult] = useState(true);
   const [showLightCones, setShowLightCones] = useState(false);
   const [showTicks, setShowTicks] = useState(true);
+  const [activeMission, setActiveMission] = useState(journeyState?.twinMission ?? 'coast-gap');
   const { progress: animProgress, isPlaying, play, reset, scrub } = useAnimationLoop(6000);
+  const { isMobile, isTablet } = useViewport();
 
   const v = velocity;
   const L = tripDistance;
@@ -40,6 +111,145 @@ export default function TwinParadox() {
     travState.phase === 'turnaround' ? 'Turnaround' :
     travState.phase === 'return' ? 'Return coast' : '—';
   const phaseColor = travState.phase === 'turnaround' ? colors.travelerAlt : colors.traveler;
+  const storyBeat = getTwinStoryBeat({
+    currentT,
+    tTotal,
+    travState,
+    tauHomeCurrent,
+    tauTravCurrent,
+    pctLess,
+  });
+  const clampPercent = (value) => Math.max(8, Math.min(92, value));
+  const twinMaxT = tTotal * 1.12;
+  const twinMaxX = L * 1.5;
+  const toCanvasPercent = (x, t) => ({
+    left: clampPercent(50 + (x / twinMaxX) * 50),
+    top: clampPercent(100 - (t / twinMaxT) * 100),
+  });
+  const travelerAnnotation = toCanvasPercent(travState.x, currentT);
+  const turnaroundAnnotation = toCanvasPercent(L, tOutbound);
+  const reunionAnnotation = toCanvasPercent(0, tTotal);
+  const twinShellStyle = {
+    position: 'relative',
+    maxWidth: 1320,
+    margin: '0 auto',
+    padding: '22px 18px 18px',
+    borderRadius: 28,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,107,74,0.12)',
+    background: `
+      radial-gradient(circle at 12% 14%, rgba(255,107,74,0.18), transparent 26%),
+      radial-gradient(circle at 88% 18%, rgba(0,229,204,0.12), transparent 24%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))
+    `,
+  };
+  const twinPanelStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 18,
+    boxShadow: '0 14px 30px rgba(0,0,0,0.18)',
+  };
+  const twinTravelerPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(180deg, rgba(255,107,74,0.12), rgba(255,255,255,0.018))',
+    border: '1px solid rgba(255,107,74,0.18)',
+  };
+  const twinDualPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(120deg, rgba(0,229,204,0.08), rgba(255,107,74,0.08) 58%, rgba(255,255,255,0.015))',
+  };
+  const twinMetricPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(180deg, rgba(255,200,50,0.08), rgba(255,255,255,0.015))',
+    border: '1px solid rgba(255,200,50,0.16)',
+  };
+  const twinCanvasFrameStyle = {
+    background: `
+      radial-gradient(circle at top right, rgba(255,107,74,0.12), transparent 26%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+    border: '1px solid rgba(255,107,74,0.16)',
+    borderRadius: 24,
+    padding: 10,
+    position: 'relative',
+    boxShadow: '0 22px 44px rgba(0,0,0,0.22)',
+  };
+  const twinRateFrameStyle = {
+    background: `
+      radial-gradient(circle at 18% 20%, rgba(0,229,204,0.10), transparent 22%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+    border: '1px solid rgba(0,229,204,0.16)',
+    borderRadius: 20,
+    padding: 10,
+    boxShadow: '0 18px 38px rgba(0,0,0,0.18)',
+  };
+  const twinTitleStyle = {
+    color: 'rgba(255,255,255,0.34)',
+    letterSpacing: '0.18em',
+  };
+  const twinCanvasHeight = isMobile ? 320 : isTablet ? 390 : 440;
+  const twinRateHeight = isMobile ? 116 : 130;
+  const clockSize = isMobile ? 84 : 100;
+  const twinMissionStatus = getTwinMissionStatus({
+    missionId: activeMission,
+    animProgress,
+    tauHomeCurrent,
+    tauTravCurrent,
+    accelFraction,
+    velocity,
+    pctLess,
+  });
+  const twinMissions = [
+    {
+      id: 'coast-gap',
+      title: 'Coast Gap',
+      summary: 'Load a fast cruise and show that the age gap appears before turnaround.',
+      objective: 'Use the preset, then scrub the timeline past 40% of the trip and compare the proper-time bars.',
+      successText: 'The gap is visible during coasting, not only at the dramatic turnaround moment.',
+      action: () => {
+        setVelocity(0.72);
+        setTripDistance(6);
+        setAccelFraction(0.04);
+        reset();
+      },
+    },
+    {
+      id: 'wide-turn',
+      title: 'Wide Turn',
+      summary: 'Spread the turnaround over a long fraction of the trip.',
+      objective: 'Load the preset, then carry the run all the way to reunion and compare the final age difference.',
+      successText: 'Smearing turnaround changes the shape of the story more than the final proper-time difference.',
+      action: () => {
+        setVelocity(0.72);
+        setTripDistance(6);
+        setAccelFraction(0.35);
+        reset();
+      },
+    },
+    {
+      id: 'high-gamma',
+      title: 'High Gamma',
+      summary: 'Push beta close to c and force a dramatic reunion.',
+      objective: 'Load the preset and run to reunion. You should see the traveler finish at least 50% younger.',
+      successText: 'At high γ the geometry becomes visually blunt: the traveler returns with dramatically less proper time.',
+      action: () => {
+        setVelocity(0.92);
+        setTripDistance(4);
+        setAccelFraction(0.08);
+        reset();
+      },
+    },
+  ];
+
+  useEffect(() => {
+    onJourneyChange?.({
+      beta: velocity,
+      tripDistance,
+      accelFraction,
+      twinMission: activeMission,
+    });
+  }, [accelFraction, activeMission, onJourneyChange, tripDistance, velocity]);
 
   // ── Main spacetime diagram ──
   const mainCanvasRef = useCanvas(
@@ -267,8 +477,7 @@ export default function TwinParadox() {
       drawEvt(0, 0, '#fff', 'departure', 8, 12);
       drawEvt(L, tOutbound, colors.traveler, 'turnaround', 8, -6);
       drawEvt(0, tTotal, '#fff', 'reunion', 8, -6);
-    },
-    [velocity, tripDistance, accelFraction, animProgress, showSimult, showLightCones, showTicks, currentT]
+    }
   );
 
   // ── dτ/dt rate chart ──
@@ -370,14 +579,22 @@ export default function TwinParadox() {
         ctx.beginPath(); ctx.arc(cp.px, cp.py, 4, 0, Math.PI * 2); ctx.fill();
         ctx.shadowBlur = 0;
       }
-    },
-    [velocity, tripDistance, accelFraction, animProgress, currentT]
+    }
   );
 
   return (
-    <div>
+    <div style={twinShellStyle}>
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
+        backgroundSize: '140px 140px',
+        maskImage: 'radial-gradient(circle at center, black, transparent 85%)',
+        pointerEvents: 'none',
+      }}
+      />
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: 16 }}>
+      <div style={{ textAlign: 'center', marginBottom: isMobile ? 14 : 20, position: 'relative', zIndex: 1 }}>
         <h1 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 400, color: '#fff', margin: 0, fontStyle: 'italic' }}>
           The Twin Paradox
         </h1>
@@ -386,26 +603,29 @@ export default function TwinParadox() {
         </p>
       </div>
 
-      <div style={{ display: 'flex', gap: 14, maxWidth: 1280, margin: '0 auto', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: isMobile ? 12 : 16, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
         {/* Left: Controls + Clocks */}
-        <div style={{ flex: '0 0 240px', minWidth: 220, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Panel title="Parameters">
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 2 : 0 }}>
+          <Panel title="Flight Parameters" style={twinTravelerPanelStyle} titleStyle={twinTitleStyle}>
             <Slider
               label={`β = ${velocity.toFixed(2)}c`}
               value={velocity} min={0.1} max={0.99} step={0.01}
               onChange={setVelocity}
               suffix={` γ = ${g.toFixed(3)}`}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
             />
             <Slider
               label={`Distance: ${tripDistance.toFixed(1)} ly`}
               value={tripDistance} min={1} max={10} step={0.5}
               onChange={setTripDistance}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
             />
             <Slider
               label={`Accel. phase: ${(accelFraction * 100).toFixed(0)}% of leg`}
               value={accelFraction} min={0.01} max={0.45} step={0.01}
               onChange={setAccelFraction}
               color={colors.travelerAlt}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
             />
 
             {/* Timeline scrubber */}
@@ -450,26 +670,35 @@ export default function TwinParadox() {
             </div>
           </Panel>
 
-          <Panel>
-            <Toggle label="Simultaneity lines" checked={showSimult} onChange={setShowSimult} />
-            <Toggle label="Light cones" checked={showLightCones} onChange={setShowLightCones} />
-            <Toggle label="Proper time ticks (τ)" checked={showTicks} onChange={setShowTicks} />
+          <GuidedMissionPanel
+            title="Guided Experiments"
+            accent={colors.traveler}
+            missions={twinMissions}
+            activeId={activeMission}
+            onSelect={setActiveMission}
+            status={twinMissionStatus}
+          />
+
+          <Panel style={twinPanelStyle}>
+            <Toggle label="Simultaneity lines" checked={showSimult} onChange={setShowSimult} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
+            <Toggle label="Light cones" checked={showLightCones} onChange={setShowLightCones} color={colors.lightCone} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
+            <Toggle label="Proper time ticks (τ)" checked={showTicks} onChange={setShowTicks} color={colors.travelerAlt} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
           </Panel>
 
-          <Panel title="Proper Time Clocks">
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 12, alignItems: 'flex-start' }}>
-              <ProperTimeClock tau={tauHomeCurrent} maxTau={tTotal} color={colors.home} label="Home" size={100} />
+          <Panel title="Proper Time Clocks" style={twinDualPanelStyle} titleStyle={twinTitleStyle}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: isMobile ? 10 : 12, alignItems: 'flex-start', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+              <ProperTimeClock tau={tauHomeCurrent} maxTau={tTotal} color={colors.home} label="Home" size={clockSize} />
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 30 }}>
                 <RateMeter rate={1} color={colors.home} height={60} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 30 }}>
                 <RateMeter rate={currentRate} color={colors.traveler} height={60} />
               </div>
-              <ProperTimeClock tau={tauTravCurrent} maxTau={tTotal} color={colors.traveler} label="Traveler" size={100} />
+              <ProperTimeClock tau={tauTravCurrent} maxTau={tTotal} color={colors.traveler} label="Traveler" size={clockSize} />
             </div>
           </Panel>
 
-          <Panel>
+          <Panel style={twinTravelerPanelStyle}>
             <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 9, color: colors.textFaint, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Phase</div>
               <div style={{ fontSize: 13, color: phaseColor, fontWeight: 500, marginTop: 4 }}>{phaseLabel}</div>
@@ -479,16 +708,47 @@ export default function TwinParadox() {
         </div>
 
         {/* Center: Spacetime Diagram */}
-        <div style={{ flex: 1, minWidth: 380, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={{
-            background: 'rgba(255,255,255,0.015)', border: `1px solid ${colors.border}`,
-            borderRadius: 6, padding: 8, position: 'relative',
-          }}>
-            <canvas ref={mainCanvasRef} style={{ width: '100%', height: 440, display: 'block' }} />
+        <div style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: 1 }}>
+          <div style={twinCanvasFrameStyle}>
+            <canvas ref={mainCanvasRef} style={{ width: '100%', height: twinCanvasHeight, display: 'block' }} />
+            <CanvasAnnotation
+              left={travelerAnnotation.left}
+              top={travelerAnnotation.top}
+              accent={travState.phase === 'turnaround' ? colors.travelerAlt : colors.traveler}
+              title={travState.phase === 'turnaround' ? 'Frame flip zone' : 'Cruise gap'}
+              body={travState.phase === 'turnaround'
+                ? 'This is the handoff between outbound and inbound frames.'
+                : `Home is already ahead by ${(tauHomeCurrent - tauTravCurrent).toFixed(2)} years at this point.`}
+              align={travelerAnnotation.left > 60 ? 'right' : 'left'}
+              compact={isMobile}
+            />
+            {animProgress < 0.9 && (
+              <CanvasAnnotation
+                left={turnaroundAnnotation.left}
+                top={turnaroundAnnotation.top}
+                accent={colors.travelerAlt}
+                title="Turnaround band"
+                body="The dramatic visual moment lives here, but the proper-time gap was building long before it."
+                align="right"
+                compact={isMobile}
+              />
+            )}
+            {animProgress >= 0.9 && (
+              <CanvasAnnotation
+                left={reunionAnnotation.left}
+                top={reunionAnnotation.top}
+                accent={colors.home}
+                title="Shared endpoint"
+                body="Reunion is where the geometry becomes a direct age comparison."
+                align="left"
+                compact={isMobile}
+              />
+            )}
             {/* Legend */}
             <div style={{
-              position: 'absolute', top: 12, right: 14, background: 'rgba(7,7,12,0.88)',
-              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5, padding: '6px 10px', fontSize: 9,
+              position: 'absolute', top: 16, right: 16, background: 'rgba(7,7,12,0.82)',
+              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '8px 12px', fontSize: 9,
+              backdropFilter: 'blur(8px)',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
                 <div style={{ width: 14, height: 2, background: colors.home, borderRadius: 1 }} />
@@ -506,33 +766,28 @@ export default function TwinParadox() {
           </div>
 
           {/* dτ/dt Rate Chart */}
-          <div style={{
-            background: 'rgba(255,255,255,0.015)', border: `1px solid ${colors.border}`,
-            borderRadius: 6, padding: 8,
-          }}>
+          <div style={twinRateFrameStyle}>
             <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: colors.textDim, marginBottom: 4, paddingLeft: 4 }}>
               dτ/dt — Proper Time Accumulation Rate
               <span style={{ color: colors.textGhost, marginLeft: 8 }}>shaded area = lost time</span>
             </div>
-            <canvas ref={rateCanvasRef} style={{ width: '100%', height: 130, display: 'block' }} />
+            <canvas ref={rateCanvasRef} style={{ width: '100%', height: twinRateHeight, display: 'block' }} />
           </div>
 
-          {/* Insight */}
-          <div style={{
-            background: colors.panelBg, border: `1px solid ${colors.border}`,
-            borderRadius: 6, padding: 14, fontSize: 10.5, lineHeight: 1.7, color: colors.textDim,
-          }}>
-            <span style={{ color: 'rgba(255,255,255,0.6)' }}>What the dτ/dt chart shows:</span>{' '}
-            the shaded region between the 1.0 line and the curve is the total lost proper time. Notice it accumulates <em>continuously</em> during
-            coasting — not just at turnaround. The turnaround dip is sharper but brief. Drag the accel fraction
-            from 1% to 45%: the dip reshapes but the total shaded area barely changes.
-            The time difference comes from having dr≠0 at every instant, not from any special turnaround physics.
-          </div>
+          <StoryCallout
+            label="Live read"
+            accent={storyBeat.accent}
+            badge={storyBeat.badge}
+            title={storyBeat.title}
+            body={storyBeat.body}
+            question={storyBeat.question}
+            answer={storyBeat.answer}
+          />
         </div>
 
         {/* Right: Results */}
-        <div style={{ flex: '0 0 200px', minWidth: 180, display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <Panel title="τ Accumulated">
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 3 : 0 }}>
+          <Panel title="τ Accumulated" style={twinDualPanelStyle} titleStyle={twinTitleStyle}>
             {/* Home bar */}
             <div style={{ marginBottom: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
@@ -571,7 +826,7 @@ export default function TwinParadox() {
             </div>
           </Panel>
 
-          <Panel title="At Reunion">
+          <Panel title="At Reunion" style={twinTravelerPanelStyle} titleStyle={twinTitleStyle}>
             <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
               <div style={{
                 flex: 1, background: 'rgba(0,229,204,0.05)', border: '1px solid rgba(0,229,204,0.15)',
@@ -593,7 +848,7 @@ export default function TwinParadox() {
             </div>
           </Panel>
 
-          <Panel title="The Metric">
+          <Panel title="The Metric" style={twinMetricPanelStyle} titleStyle={twinTitleStyle}>
             <div style={{ fontFamily: DISPLAY, fontSize: 16, color: 'rgba(255,255,255,0.7)', textAlign: 'center', fontStyle: 'italic', lineHeight: 1.6 }}>
               dτ² = dt² − dr²
             </div>

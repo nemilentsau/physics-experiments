@@ -1,7 +1,7 @@
 // Twin paradox worldline physics — extracted from twin-paradox-v2.jsx
 
 // Get traveler state at any coordinate time
-export function getTravelerState(t, v, tOutbound, accelDuration, L) {
+export function getTravelerState(t, v, tOutbound, accelDuration) {
   const tA1 = tOutbound - accelDuration;
   const tA2 = tOutbound + accelDuration;
   const totalAccelTime = 2 * accelDuration;

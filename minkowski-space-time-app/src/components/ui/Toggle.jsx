@@ -1,4 +1,4 @@
-export function Toggle({ label, checked, onChange, color = '#00e5cc' }) {
+export function Toggle({ label, checked, onChange, color = '#00e5cc', labelStyle }) {
   return (
     <label style={{
       display: 'flex',
@@ -8,6 +8,7 @@ export function Toggle({ label, checked, onChange, color = '#00e5cc' }) {
       color: 'rgba(255,255,255,0.5)',
       marginBottom: 6,
       cursor: 'pointer',
+      ...labelStyle,
     }}>
       <input
         type="checkbox"

@@ -1,7 +1,7 @@
 import { useRef, useEffect } from 'react';
 
 // Enhanced canvas hook with DPR handling and ResizeObserver
-export function useCanvas(draw, deps) {
+export function useCanvas(draw) {
   const ref = useRef(null);
 
   useEffect(() => {
@@ -26,7 +26,7 @@ export function useCanvas(draw, deps) {
     observer.observe(canvas);
 
     return () => observer.disconnect();
-  }, deps);
+  }, [draw]);
 
   return ref;
 }

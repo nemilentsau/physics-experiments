@@ -1,6 +1,6 @@
 import { colors } from '../../rendering/theme.js';
 
-export function Panel({ title, children, style }) {
+export function Panel({ title, children, style, titleStyle }) {
   return (
     <div style={{
       background: colors.panelBg,
@@ -16,6 +16,7 @@ export function Panel({ title, children, style }) {
           letterSpacing: '0.15em',
           color: colors.textFaint,
           marginBottom: 10,
+          ...titleStyle,
         }}>
           {title}
         </div>
