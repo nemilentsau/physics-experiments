@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C /Users/andreinemilentsau/Projects/physics-experiments log --all --oneline)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(rm -rf src/assets src/App.css src/index.css)",
+      "Bash(mkdir -p src/physics src/rendering src/hooks src/components/ui src/experiences/twin-paradox src/experiences/light-cone-explorer src/experiences/lorentz-boost src/experiences/reference-frames)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(npx vite:*)"
+    ]
+  }
+}

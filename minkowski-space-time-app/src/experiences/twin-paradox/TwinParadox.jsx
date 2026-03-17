@@ -1,0 +1,869 @@
+import { useEffect, useState } from 'react';
+import { gamma, dtaudt } from '../../physics/lorentz.js';
+import { getTravelerState, integrateProperTime } from '../../physics/worldline.js';
+import { useCanvas } from '../../hooks/useCanvas.js';
+import { useAnimationLoop } from '../../hooks/useAnimationLoop.js';
+import { useViewport } from '../../hooks/useViewport.js';
+import { getTwinMissionStatus } from '../../logic/missions.js';
+import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
+import { Panel } from '../../components/ui/Panel.jsx';
+import { Slider } from '../../components/ui/Slider.jsx';
+import { Toggle } from '../../components/ui/Toggle.jsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
+import { ProperTimeClock } from './ProperTimeClock.jsx';
+import { RateMeter } from './RateMeter.jsx';
+
+function getTwinStoryBeat({
+  currentT,
+  tTotal,
+  travState,
+  tauHomeCurrent,
+  tauTravCurrent,
+  pctLess,
+}) {
+  const ageGap = tauHomeCurrent - tauTravCurrent;
+
+  if (currentT < tTotal * 0.04) {
+    return {
+      accent: colors.lightCone,
+      badge: 'Departure',
+      title: 'The clocks start together, then diverge immediately',
+      body: `At launch the twins agree. The instant the traveler picks up speed, each unit of coordinate time turns into less proper time on the moving path.`,
+      question: 'When does the age gap begin?',
+      answer: 'Right away. Any stretch with spatial motion has dτ < dt, so the gap accumulates continuously from the first moving segment onward.',
+    };
+  }
+
+  if (travState.phase === 'outbound') {
+    return {
+      accent: colors.traveler,
+      badge: `gap ${ageGap.toFixed(2)} yr`,
+      title: 'Cruise is already doing the aging damage',
+      body: `The home twin is ahead by ${ageGap.toFixed(2)} years right now. Nothing exotic is waiting at turnaround: the traveler is simply tracing a shorter proper-time path during outbound motion.`,
+      question: 'Is the traveler losing time only at turnaround?',
+      answer: 'No. Turnaround matters for frame bookkeeping, but the missing proper time is being lost all through the coasting legs.',
+    };
+  }
+
+  if (travState.phase === 'turnaround') {
+    return {
+      accent: colors.travelerAlt,
+      badge: 'Frame flip',
+      title: 'Turnaround exposes the asymmetry',
+      body: `This is the dramatic moment because the traveler switches from outbound to inbound motion. The simultaneity lines swing, making it obvious that the twins are not tracing symmetric histories through spacetime.`,
+      question: 'What is special about turnaround?',
+      answer: 'It does not create the whole age gap by itself. It is where the traveler changes frames, which breaks the apparent symmetry and clarifies why the comparison is not reciprocal.',
+    };
+  }
+
+  if (currentT > tTotal * 0.98) {
+    return {
+      accent: colors.home,
+      badge: `traveler aged ${pctLess}% less`,
+      title: 'Reunion turns geometry into a direct comparison',
+      body: `Now both clocks meet again at the same event, so the age difference becomes physical instead of interpretive. The home twin has accumulated ${tauHomeCurrent.toFixed(2)} years while the traveler has accumulated ${tauTravCurrent.toFixed(2)}.`,
+      question: 'Why is the home twin older at reunion?',
+      answer: 'Because the home twin followed the maximal proper-time path between departure and reunion in flat spacetime, while the traveler took a bent path with dr ≠ 0.',
+    };
+  }
+
+  return {
+    accent: colors.home,
+    badge: `return leg`,
+    title: 'The traveler comes home with the deficit already built in',
+    body: `On the inbound leg the gap is still growing, and the reunion event is getting closer. The key fact is unchanged: the moving worldline continues to accumulate proper time more slowly than the stay-at-home path.`,
+    question: 'What should you watch on the return?',
+    answer: 'Compare the proper-time bars and the shaded dτ/dt area. They show the gap arriving home with the traveler rather than appearing suddenly at the end.',
+  };
+}
+
+export default function TwinParadox({ journeyState, onJourneyChange }) {
+  const [velocity, setVelocity] = useState(journeyState?.beta ?? 0.6);
+  const [tripDistance, setTripDistance] = useState(journeyState?.tripDistance ?? 4);
+  const [accelFraction, setAccelFraction] = useState(journeyState?.accelFraction ?? 0.08);
+  const [showSimult, setShowSimult] = useState(true);
+  const [showLightCones, setShowLightCones] = useState(false);
+  const [showTicks, setShowTicks] = useState(true);
+  const [activeMission, setActiveMission] = useState(journeyState?.twinMission ?? 'coast-gap');
+  const { progress: animProgress, isPlaying, play, reset, scrub } = useAnimationLoop(6000);
+  const { isMobile, isTablet } = useViewport();
+
+  const v = velocity;
+  const L = tripDistance;
+  const g = gamma(v);
+  const tOutbound = L / v;
+  const tTotal = 2 * tOutbound;
+  const accelDuration = accelFraction * tOutbound;
+
+  const currentT = animProgress * tTotal;
+  const travState = getTravelerState(currentT, v, tOutbound, accelDuration, L);
+  const travSpeed = Math.abs(travState.v);
+  const currentRate = dtaudt(travSpeed);
+  const tauTravCurrent = integrateProperTime(currentT, v, tOutbound, accelDuration);
+  const tauHomeCurrent = currentT;
+  const tauTravTotal = integrateProperTime(tTotal, v, tOutbound, accelDuration);
+
+  const timeDiff = tTotal - tauTravTotal;
+  const pctLess = ((timeDiff / tTotal) * 100).toFixed(1);
+  const phaseLabel = travState.phase === 'outbound' ? 'Outbound coast' :
+    travState.phase === 'turnaround' ? 'Turnaround' :
+    travState.phase === 'return' ? 'Return coast' : '—';
+  const phaseColor = travState.phase === 'turnaround' ? colors.travelerAlt : colors.traveler;
+  const storyBeat = getTwinStoryBeat({
+    currentT,
+    tTotal,
+    travState,
+    tauHomeCurrent,
+    tauTravCurrent,
+    pctLess,
+  });
+  const clampPercent = (value) => Math.max(8, Math.min(92, value));
+  const twinMaxT = tTotal * 1.12;
+  const twinMaxX = L * 1.5;
+  const toCanvasPercent = (x, t) => ({
+    left: clampPercent(50 + (x / twinMaxX) * 50),
+    top: clampPercent(100 - (t / twinMaxT) * 100),
+  });
+  const travelerAnnotation = toCanvasPercent(travState.x, currentT);
+  const turnaroundAnnotation = toCanvasPercent(L, tOutbound);
+  const reunionAnnotation = toCanvasPercent(0, tTotal);
+  const twinShellStyle = {
+    position: 'relative',
+    maxWidth: 1320,
+    margin: '0 auto',
+    padding: '22px 18px 18px',
+    borderRadius: 28,
+    overflow: 'hidden',
+    border: '1px solid rgba(255,107,74,0.12)',
+    background: `
+      radial-gradient(circle at 12% 14%, rgba(255,107,74,0.18), transparent 26%),
+      radial-gradient(circle at 88% 18%, rgba(0,229,204,0.12), transparent 24%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))
+    `,
+  };
+  const twinPanelStyle = {
+    background: 'linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015))',
+    border: '1px solid rgba(255,255,255,0.07)',
+    borderRadius: 18,
+    boxShadow: '0 14px 30px rgba(0,0,0,0.18)',
+  };
+  const twinTravelerPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(180deg, rgba(255,107,74,0.12), rgba(255,255,255,0.018))',
+    border: '1px solid rgba(255,107,74,0.18)',
+  };
+  const twinDualPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(120deg, rgba(0,229,204,0.08), rgba(255,107,74,0.08) 58%, rgba(255,255,255,0.015))',
+  };
+  const twinMetricPanelStyle = {
+    ...twinPanelStyle,
+    background: 'linear-gradient(180deg, rgba(255,200,50,0.08), rgba(255,255,255,0.015))',
+    border: '1px solid rgba(255,200,50,0.16)',
+  };
+  const twinCanvasFrameStyle = {
+    background: `
+      radial-gradient(circle at top right, rgba(255,107,74,0.12), transparent 26%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+    border: '1px solid rgba(255,107,74,0.16)',
+    borderRadius: 24,
+    padding: 10,
+    position: 'relative',
+    boxShadow: '0 22px 44px rgba(0,0,0,0.22)',
+  };
+  const twinRateFrameStyle = {
+    background: `
+      radial-gradient(circle at 18% 20%, rgba(0,229,204,0.10), transparent 22%),
+      linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
+    `,
+    border: '1px solid rgba(0,229,204,0.16)',
+    borderRadius: 20,
+    padding: 10,
+    boxShadow: '0 18px 38px rgba(0,0,0,0.18)',
+  };
+  const twinTitleStyle = {
+    color: 'rgba(255,255,255,0.34)',
+    letterSpacing: '0.18em',
+  };
+  const twinCanvasHeight = isMobile ? 320 : isTablet ? 390 : 440;
+  const twinRateHeight = isMobile ? 116 : 130;
+  const clockSize = isMobile ? 84 : 100;
+  const twinMissionStatus = getTwinMissionStatus({
+    missionId: activeMission,
+    animProgress,
+    tauHomeCurrent,
+    tauTravCurrent,
+    accelFraction,
+    velocity,
+    pctLess,
+  });
+  const twinMissions = [
+    {
+      id: 'coast-gap',
+      title: 'Coast Gap',
+      summary: 'Load a fast cruise and show that the age gap appears before turnaround.',
+      objective: 'Use the preset, then scrub the timeline past 40% of the trip and compare the proper-time bars.',
+      successText: 'The gap is visible during coasting, not only at the dramatic turnaround moment.',
+      action: () => {
+        setVelocity(0.72);
+        setTripDistance(6);
+        setAccelFraction(0.04);
+        reset();
+      },
+    },
+    {
+      id: 'wide-turn',
+      title: 'Wide Turn',
+      summary: 'Spread the turnaround over a long fraction of the trip.',
+      objective: 'Load the preset, then carry the run all the way to reunion and compare the final age difference.',
+      successText: 'Smearing turnaround changes the shape of the story more than the final proper-time difference.',
+      action: () => {
+        setVelocity(0.72);
+        setTripDistance(6);
+        setAccelFraction(0.35);
+        reset();
+      },
+    },
+    {
+      id: 'high-gamma',
+      title: 'High Gamma',
+      summary: 'Push beta close to c and force a dramatic reunion.',
+      objective: 'Load the preset and run to reunion. You should see the traveler finish at least 50% younger.',
+      successText: 'At high γ the geometry becomes visually blunt: the traveler returns with dramatically less proper time.',
+      action: () => {
+        setVelocity(0.92);
+        setTripDistance(4);
+        setAccelFraction(0.08);
+        reset();
+      },
+    },
+  ];
+
+  useEffect(() => {
+    onJourneyChange?.({
+      beta: velocity,
+      tripDistance,
+      accelFraction,
+      twinMission: activeMission,
+    });
+  }, [accelFraction, activeMission, onJourneyChange, tripDistance, velocity]);
+
+  // ── Main spacetime diagram ──
+  const mainCanvasRef = useCanvas(
+    (ctx, W, H) => {
+      const m = { top: 30, bottom: 40, left: 50, right: 30 };
+      const pW = W - m.left - m.right;
+      const pH = H - m.top - m.bottom;
+      const maxT = tTotal * 1.12;
+      const maxX = L * 1.5;
+
+      const toP = (x, t) => ({
+        px: m.left + pW / 2 + (x / maxX) * (pW / 2),
+        py: H - m.bottom - (t / maxT) * pH,
+      });
+
+      ctx.fillStyle = colors.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // Grid
+      ctx.strokeStyle = colors.grid;
+      ctx.lineWidth = 1;
+      for (let t = 0; t <= maxT; t += 1) {
+        const { py } = toP(0, t);
+        ctx.beginPath(); ctx.moveTo(m.left, py); ctx.lineTo(W - m.right, py); ctx.stroke();
+      }
+      for (let x = -Math.floor(maxX); x <= Math.floor(maxX); x++) {
+        const { px } = toP(x, 0);
+        ctx.beginPath(); ctx.moveTo(px, m.top); ctx.lineTo(px, H - m.bottom); ctx.stroke();
+      }
+
+      // Axes
+      ctx.strokeStyle = colors.axis;
+      ctx.lineWidth = 1;
+      const o = toP(0, 0);
+      ctx.beginPath(); ctx.moveTo(o.px, o.py); ctx.lineTo(toP(0, maxT).px, toP(0, maxT).py); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(toP(-maxX, 0).px, o.py); ctx.lineTo(toP(maxX, 0).px, o.py); ctx.stroke();
+
+      // Axis labels
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.font = `9px ${MONO}`;
+      ctx.textAlign = 'center';
+      for (let t = 1; t <= Math.floor(maxT); t++) {
+        const p = toP(0, t);
+        ctx.fillText(t, p.px - 16, p.py + 3);
+      }
+      for (let x = -Math.floor(maxX); x <= Math.floor(maxX); x++) {
+        if (x === 0) continue;
+        const p = toP(x, 0);
+        ctx.fillText(x, p.px, p.py + 14);
+      }
+      ctx.fillStyle = 'rgba(255,255,255,0.2)';
+      ctx.fillText('x (ly)', W / 2, H - 4);
+      ctx.save();
+      ctx.translate(10, H / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('t (yr)', 0, 0);
+      ctx.restore();
+
+      // Light cones
+      if (showLightCones) {
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(255,200,50,0.1)';
+        ctx.lineWidth = 0.8;
+        [1, -1].forEach((s) => {
+          ctx.beginPath();
+          ctx.moveTo(o.px, o.py);
+          const e = toP(s * maxT, maxT);
+          ctx.lineTo(e.px, e.py);
+          ctx.stroke();
+        });
+        const tp = toP(L, tOutbound);
+        [1, -1].forEach((s) => {
+          ctx.beginPath(); ctx.moveTo(tp.px, tp.py);
+          ctx.lineTo(toP(L + s * maxT, tOutbound + maxT).px, toP(L + s * maxT, tOutbound + maxT).py);
+          ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(tp.px, tp.py);
+          ctx.lineTo(toP(L + s * tOutbound, 0).px, toP(L + s * tOutbound, 0).py);
+          ctx.stroke();
+        });
+        ctx.setLineDash([]);
+      }
+
+      // Turnaround region
+      const tA1 = tOutbound - accelDuration;
+      const tA2 = tOutbound + accelDuration;
+      ctx.fillStyle = colors.turnaround;
+      ctx.beginPath();
+      ctx.moveTo(toP(-maxX, tA1).px, toP(-maxX, tA1).py);
+      ctx.lineTo(toP(maxX, tA1).px, toP(maxX, tA1).py);
+      ctx.lineTo(toP(maxX, tA2).px, toP(maxX, tA2).py);
+      ctx.lineTo(toP(-maxX, tA2).px, toP(-maxX, tA2).py);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = colors.turnaroundText;
+      ctx.font = `8px ${MONO}`;
+      ctx.textAlign = 'right';
+      ctx.fillText('turnaround', W - m.right - 4, toP(0, tOutbound).py - 2);
+
+      // Simultaneity lines
+      if (showSimult) {
+        const nLines = 10;
+        for (let i = 1; i <= nLines; i++) {
+          const tSim = (i / (nLines + 1)) * tTotal;
+          if (tSim > currentT) continue;
+          const st = getTravelerState(tSim, v, tOutbound, accelDuration, L);
+          const lv = st.v;
+          const sx = st.x;
+          const x1 = -maxX;
+          const t1c = tSim + lv * (x1 - sx);
+          const x2 = maxX;
+          const t2c = tSim + lv * (x2 - sx);
+          const p1 = toP(x1, t1c);
+          const p2 = toP(x2, t2c);
+          const nearTurn = st.phase === 'turnaround';
+          ctx.strokeStyle = nearTurn ? 'rgba(255,70,100,0.5)' : 'rgba(255,107,74,0.18)';
+          ctx.lineWidth = nearTurn ? 1.2 : 0.7;
+          ctx.setLineDash([5, 4]);
+          ctx.beginPath();
+          ctx.moveTo(p1.px, p1.py);
+          ctx.lineTo(p2.px, p2.py);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+
+      // Home twin worldline
+      const homeEndT = Math.min(currentT, tTotal);
+      ctx.strokeStyle = colors.home;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = colors.home;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(o.px, o.py);
+      ctx.lineTo(toP(0, homeEndT).px, toP(0, homeEndT).py);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Home proper time ticks
+      if (showTicks) {
+        for (let tau = 1; tau <= Math.floor(tTotal); tau++) {
+          if (tau > currentT) break;
+          const p = toP(0, tau);
+          ctx.fillStyle = colors.home + 'aa';
+          ctx.beginPath();
+          ctx.arc(p.px - 6, p.py, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = colors.home + '55';
+          ctx.font = `8px ${MONO}`;
+          ctx.textAlign = 'right';
+          ctx.fillText(`τ=${tau}`, p.px - 12, p.py + 3);
+        }
+      }
+
+      // Traveling twin worldline
+      ctx.strokeStyle = colors.traveler;
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = colors.traveler;
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.moveTo(o.px, o.py);
+      const steps = 400;
+      for (let i = 1; i <= steps; i++) {
+        const t = (i / steps) * tTotal;
+        if (t > currentT) break;
+        const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+        const p = toP(st.x, t);
+        ctx.lineTo(p.px, p.py);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Traveler proper time ticks
+      if (showTicks) {
+        const totalTauTrav = integrateProperTime(tTotal, v, tOutbound, accelDuration);
+        for (let tau = 1; tau <= Math.floor(totalTauTrav); tau++) {
+          let lo = 0, hi = tTotal;
+          for (let iter = 0; iter < 40; iter++) {
+            const mid = (lo + hi) / 2;
+            if (integrateProperTime(mid, v, tOutbound, accelDuration) < tau) lo = mid;
+            else hi = mid;
+          }
+          const tCoord = (lo + hi) / 2;
+          if (tCoord > currentT) break;
+          const st = getTravelerState(tCoord, v, tOutbound, accelDuration, L);
+          const p = toP(st.x, tCoord);
+          ctx.fillStyle = colors.traveler + 'aa';
+          ctx.beginPath();
+          ctx.arc(p.px + 6, p.py, 2.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = colors.traveler + '55';
+          ctx.font = `8px ${MONO}`;
+          ctx.textAlign = 'left';
+          ctx.fillText(`τ=${tau}`, p.px + 12, p.py + 3);
+        }
+      }
+
+      // Current position dots
+      if (animProgress > 0 && animProgress < 1) {
+        const hp = toP(0, currentT);
+        ctx.fillStyle = colors.home;
+        ctx.shadowColor = colors.home;
+        ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(hp.px, hp.py, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+        const tp2 = toP(travState.x, currentT);
+        ctx.fillStyle = colors.traveler;
+        ctx.shadowColor = colors.traveler;
+        ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.arc(tp2.px, tp2.py, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+
+      // Event dots
+      const drawEvt = (x, t, col, lbl, ox, oy) => {
+        if (t > currentT && t > 0) return;
+        const p = toP(x, t);
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(p.px, p.py, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = `9px ${MONO}`;
+        ctx.textAlign = 'left';
+        ctx.fillText(lbl, p.px + ox, p.py + oy);
+      };
+      drawEvt(0, 0, '#fff', 'departure', 8, 12);
+      drawEvt(L, tOutbound, colors.traveler, 'turnaround', 8, -6);
+      drawEvt(0, tTotal, '#fff', 'reunion', 8, -6);
+    }
+  );
+
+  // ── dτ/dt rate chart ──
+  const rateCanvasRef = useCanvas(
+    (ctx, W, H) => {
+      const m = { top: 14, bottom: 24, left: 32, right: 8 };
+      const pW = W - m.left - m.right;
+      const pH = H - m.top - m.bottom;
+
+      ctx.fillStyle = colors.bg;
+      ctx.fillRect(0, 0, W, H);
+
+      const toP = (t, r) => ({
+        px: m.left + (t / tTotal) * pW,
+        py: H - m.bottom - r * pH,
+      });
+
+      // Grid
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 0.5;
+      [0.25, 0.5, 0.75, 1.0].forEach((r) => {
+        const p = toP(0, r);
+        ctx.beginPath(); ctx.moveTo(m.left, p.py); ctx.lineTo(W - m.right, p.py); ctx.stroke();
+      });
+
+      // Reference line at 1.0
+      ctx.strokeStyle = colors.home + '33';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 3]);
+      const ref = toP(0, 1);
+      ctx.beginPath(); ctx.moveTo(m.left, ref.py); ctx.lineTo(W - m.right, ref.py); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Turnaround shading
+      const tA1 = tOutbound - accelDuration;
+      const tA2 = tOutbound + accelDuration;
+      const p1 = toP(tA1, 0);
+      const p2 = toP(tA2, 0);
+      ctx.fillStyle = 'rgba(255,70,100,0.06)';
+      ctx.fillRect(p1.px, m.top, p2.px - p1.px, pH);
+
+      // Rate curve
+      ctx.strokeStyle = colors.traveler;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      const steps = 300;
+      for (let i = 0; i <= steps; i++) {
+        const t = (i / steps) * tTotal;
+        if (t > currentT) break;
+        const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+        const rate = Math.sqrt(1 - st.v * st.v);
+        const p = toP(t, rate);
+        if (i === 0) ctx.moveTo(p.px, p.py);
+        else ctx.lineTo(p.px, p.py);
+      }
+      ctx.stroke();
+
+      // Fill under curve (lost time)
+      if (currentT > 0) {
+        const endT = Math.min(currentT, tTotal);
+        ctx.beginPath();
+        const pStart = toP(0, 1);
+        ctx.moveTo(pStart.px, pStart.py);
+        for (let i = 0; i <= steps; i++) {
+          const t = (i / steps) * tTotal;
+          if (t > endT) break;
+          const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+          const rate = Math.sqrt(1 - st.v * st.v);
+          const p = toP(t, rate);
+          ctx.lineTo(p.px, p.py);
+        }
+        ctx.lineTo(toP(endT, 1).px, toP(endT, 1).py);
+        ctx.closePath();
+        ctx.fillStyle = 'rgba(255,107,74,0.08)';
+        ctx.fill();
+      }
+
+      // Axes
+      ctx.strokeStyle = colors.axis;
+      ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(m.left, H - m.bottom); ctx.lineTo(W - m.right, H - m.bottom); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(m.left, m.top); ctx.lineTo(m.left, H - m.bottom); ctx.stroke();
+
+      // Labels
+      ctx.fillStyle = colors.textFaint;
+      ctx.font = `8px ${MONO}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('t (coordinate)', W / 2, H - 4);
+      ctx.textAlign = 'right';
+      ctx.fillText('1.0', m.left - 4, ref.py + 3);
+      ctx.fillText('0', m.left - 4, H - m.bottom + 3);
+
+      // Current marker
+      if (animProgress > 0 && animProgress < 1) {
+        const cp = toP(currentT, currentRate);
+        ctx.fillStyle = colors.traveler;
+        ctx.shadowColor = colors.traveler;
+        ctx.shadowBlur = 8;
+        ctx.beginPath(); ctx.arc(cp.px, cp.py, 4, 0, Math.PI * 2); ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+  );
+
+  return (
+    <div style={twinShellStyle}>
+      <div style={{
+        position: 'absolute',
+        inset: 0,
+        backgroundImage: 'linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)',
+        backgroundSize: '140px 140px',
+        maskImage: 'radial-gradient(circle at center, black, transparent 85%)',
+        pointerEvents: 'none',
+      }}
+      />
+      {/* Header */}
+      <div style={{ textAlign: 'center', marginBottom: isMobile ? 14 : 20, position: 'relative', zIndex: 1 }}>
+        <h1 style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 400, color: '#fff', margin: 0, fontStyle: 'italic' }}>
+          The Twin Paradox
+        </h1>
+        <p style={{ fontSize: 9, color: colors.textFaint, letterSpacing: '0.2em', textTransform: 'uppercase', marginTop: 4 }}>
+          Proper Time · Simultaneity · Path Geometry
+        </p>
+      </div>
+
+      <div style={{ display: 'flex', gap: isMobile ? 12 : 16, flexWrap: 'wrap', position: 'relative', zIndex: 1 }}>
+        {/* Left: Controls + Clocks */}
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 240px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 2 : 0 }}>
+          <Panel title="Flight Parameters" style={twinTravelerPanelStyle} titleStyle={twinTitleStyle}>
+            <Slider
+              label={`β = ${velocity.toFixed(2)}c`}
+              value={velocity} min={0.1} max={0.99} step={0.01}
+              onChange={setVelocity}
+              suffix={` γ = ${g.toFixed(3)}`}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
+            />
+            <Slider
+              label={`Distance: ${tripDistance.toFixed(1)} ly`}
+              value={tripDistance} min={1} max={10} step={0.5}
+              onChange={setTripDistance}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
+            />
+            <Slider
+              label={`Accel. phase: ${(accelFraction * 100).toFixed(0)}% of leg`}
+              value={accelFraction} min={0.01} max={0.45} step={0.01}
+              onChange={setAccelFraction}
+              color={colors.travelerAlt}
+              labelStyle={{ color: 'rgba(255,255,255,0.62)' }}
+            />
+
+            {/* Timeline scrubber */}
+            <div style={{ marginTop: 4, marginBottom: 8 }}>
+              <label style={{ fontSize: 9, color: colors.textFaint, display: 'block', marginBottom: 4, letterSpacing: '0.1em', textTransform: 'uppercase' }}>
+                Timeline
+              </label>
+              <input
+                type="range"
+                min={0} max={1} step={0.002}
+                value={animProgress}
+                onChange={(e) => scrub(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: colors.lightCone }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 8, color: colors.textGhost, marginTop: 2 }}>
+                <span>t = 0</span>
+                <span>t = {currentT.toFixed(1)} yr</span>
+                <span>t = {tTotal.toFixed(1)}</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={play} disabled={isPlaying}
+                style={{
+                  flex: 1, padding: '8px 0',
+                  background: isPlaying ? 'rgba(255,255,255,0.03)' : 'rgba(255,107,74,0.12)',
+                  border: `1px solid ${isPlaying ? 'rgba(255,255,255,0.05)' : 'rgba(255,107,74,0.25)'}`,
+                  borderRadius: 5, color: isPlaying ? 'rgba(255,255,255,0.2)' : colors.traveler,
+                  fontFamily: MONO, fontSize: 10, letterSpacing: '0.08em', cursor: isPlaying ? 'default' : 'pointer',
+                  textTransform: 'uppercase',
+                }}>
+                {isPlaying ? '…' : '▶ Launch'}
+              </button>
+              <button onClick={reset}
+                style={{
+                  padding: '8px 12px', background: 'rgba(255,255,255,0.03)',
+                  border: '1px solid rgba(255,255,255,0.08)', borderRadius: 5,
+                  color: colors.textDim, fontFamily: MONO, fontSize: 10, cursor: 'pointer',
+                }}>
+                ↺
+              </button>
+            </div>
+          </Panel>
+
+          <GuidedMissionPanel
+            title="Guided Experiments"
+            accent={colors.traveler}
+            missions={twinMissions}
+            activeId={activeMission}
+            onSelect={setActiveMission}
+            status={twinMissionStatus}
+          />
+
+          <Panel style={twinPanelStyle}>
+            <Toggle label="Simultaneity lines" checked={showSimult} onChange={setShowSimult} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
+            <Toggle label="Light cones" checked={showLightCones} onChange={setShowLightCones} color={colors.lightCone} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
+            <Toggle label="Proper time ticks (τ)" checked={showTicks} onChange={setShowTicks} color={colors.travelerAlt} labelStyle={{ color: 'rgba(255,255,255,0.58)' }} />
+          </Panel>
+
+          <Panel title="Proper Time Clocks" style={twinDualPanelStyle} titleStyle={twinTitleStyle}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: isMobile ? 10 : 12, alignItems: 'flex-start', flexWrap: isMobile ? 'wrap' : 'nowrap' }}>
+              <ProperTimeClock tau={tauHomeCurrent} maxTau={tTotal} color={colors.home} label="Home" size={clockSize} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 30 }}>
+                <RateMeter rate={1} color={colors.home} height={60} />
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingTop: 30 }}>
+                <RateMeter rate={currentRate} color={colors.traveler} height={60} />
+              </div>
+              <ProperTimeClock tau={tauTravCurrent} maxTau={tTotal} color={colors.traveler} label="Traveler" size={clockSize} />
+            </div>
+          </Panel>
+
+          <Panel style={twinTravelerPanelStyle}>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: colors.textFaint, textTransform: 'uppercase', letterSpacing: '0.12em' }}>Phase</div>
+              <div style={{ fontSize: 13, color: phaseColor, fontWeight: 500, marginTop: 4 }}>{phaseLabel}</div>
+              <div style={{ fontSize: 10, color: colors.textDim, marginTop: 4 }}>|v| = {travSpeed.toFixed(3)}c</div>
+            </div>
+          </Panel>
+        </div>
+
+        {/* Center: Spacetime Diagram */}
+        <div style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: 1 }}>
+          <div style={twinCanvasFrameStyle}>
+            <canvas ref={mainCanvasRef} style={{ width: '100%', height: twinCanvasHeight, display: 'block' }} />
+            <CanvasAnnotation
+              left={travelerAnnotation.left}
+              top={travelerAnnotation.top}
+              accent={travState.phase === 'turnaround' ? colors.travelerAlt : colors.traveler}
+              title={travState.phase === 'turnaround' ? 'Frame flip zone' : 'Cruise gap'}
+              body={travState.phase === 'turnaround'
+                ? 'This is the handoff between outbound and inbound frames.'
+                : `Home is already ahead by ${(tauHomeCurrent - tauTravCurrent).toFixed(2)} years at this point.`}
+              align={travelerAnnotation.left > 60 ? 'right' : 'left'}
+              compact={isMobile}
+            />
+            {animProgress < 0.9 && (
+              <CanvasAnnotation
+                left={turnaroundAnnotation.left}
+                top={turnaroundAnnotation.top}
+                accent={colors.travelerAlt}
+                title="Turnaround band"
+                body="The dramatic visual moment lives here, but the proper-time gap was building long before it."
+                align="right"
+                compact={isMobile}
+              />
+            )}
+            {animProgress >= 0.9 && (
+              <CanvasAnnotation
+                left={reunionAnnotation.left}
+                top={reunionAnnotation.top}
+                accent={colors.home}
+                title="Shared endpoint"
+                body="Reunion is where the geometry becomes a direct age comparison."
+                align="left"
+                compact={isMobile}
+              />
+            )}
+            {/* Legend */}
+            <div style={{
+              position: 'absolute', top: 16, right: 16, background: 'rgba(7,7,12,0.82)',
+              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '8px 12px', fontSize: 9,
+              backdropFilter: 'blur(8px)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                <div style={{ width: 14, height: 2, background: colors.home, borderRadius: 1 }} />
+                <span style={{ color: colors.textDim }}>Home (geodesic, dr=0)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 3 }}>
+                <div style={{ width: 14, height: 2, background: colors.traveler, borderRadius: 1 }} />
+                <span style={{ color: colors.textDim }}>Traveler (dr≠0)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                <div style={{ width: 14, height: 0, borderTop: '1px dashed rgba(255,70,100,0.6)' }} />
+                <span style={{ color: colors.textDim }}>Simultaneity</span>
+              </div>
+            </div>
+          </div>
+
+          {/* dτ/dt Rate Chart */}
+          <div style={twinRateFrameStyle}>
+            <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.12em', color: colors.textDim, marginBottom: 4, paddingLeft: 4 }}>
+              dτ/dt — Proper Time Accumulation Rate
+              <span style={{ color: colors.textGhost, marginLeft: 8 }}>shaded area = lost time</span>
+            </div>
+            <canvas ref={rateCanvasRef} style={{ width: '100%', height: twinRateHeight, display: 'block' }} />
+          </div>
+
+          <StoryCallout
+            label="Live read"
+            accent={storyBeat.accent}
+            badge={storyBeat.badge}
+            title={storyBeat.title}
+            body={storyBeat.body}
+            question={storyBeat.question}
+            answer={storyBeat.answer}
+          />
+        </div>
+
+        {/* Right: Results */}
+        <div style={{ flex: isMobile ? '1 1 100%' : '0 0 200px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12, order: isMobile ? 3 : 0 }}>
+          <Panel title="τ Accumulated" style={twinDualPanelStyle} titleStyle={twinTitleStyle}>
+            {/* Home bar */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
+                <span style={{ color: colors.home }}>Home</span>
+                <span style={{ color: colors.home }}>{tauHomeCurrent.toFixed(2)} yr</span>
+              </div>
+              <div style={{ height: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${(tauHomeCurrent / tTotal) * 100}%`,
+                  background: `linear-gradient(90deg, ${colors.home}44, ${colors.home}88)`,
+                  borderRadius: 3, transition: 'width 0.05s',
+                }} />
+              </div>
+            </div>
+            {/* Traveler bar */}
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, marginBottom: 3 }}>
+                <span style={{ color: colors.traveler }}>Traveler</span>
+                <span style={{ color: colors.traveler }}>{tauTravCurrent.toFixed(2)} yr</span>
+              </div>
+              <div style={{ height: 10, background: 'rgba(255,255,255,0.04)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', width: `${(tauTravCurrent / tTotal) * 100}%`,
+                  background: `linear-gradient(90deg, ${colors.traveler}44, ${colors.traveler}88)`,
+                  borderRadius: 3, transition: 'width 0.05s',
+                }} />
+              </div>
+            </div>
+            <div style={{
+              background: 'rgba(255,255,255,0.04)', borderRadius: 4, padding: 8, textAlign: 'center', marginTop: 6,
+            }}>
+              <div style={{ fontSize: 9, color: colors.textDim, marginBottom: 2 }}>Difference</div>
+              <div style={{ fontFamily: DISPLAY, fontSize: 20, color: '#fff' }}>
+                {(tauHomeCurrent - tauTravCurrent).toFixed(2)} yr
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="At Reunion" style={twinTravelerPanelStyle} titleStyle={twinTitleStyle}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+              <div style={{
+                flex: 1, background: 'rgba(0,229,204,0.05)', border: '1px solid rgba(0,229,204,0.15)',
+                borderRadius: 5, padding: 8, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 8, color: colors.home + '99', textTransform: 'uppercase' }}>Home</div>
+                <div style={{ fontFamily: DISPLAY, fontSize: 18, color: colors.home, marginTop: 2 }}>{tTotal.toFixed(2)}</div>
+              </div>
+              <div style={{
+                flex: 1, background: 'rgba(255,107,74,0.05)', border: '1px solid rgba(255,107,74,0.15)',
+                borderRadius: 5, padding: 8, textAlign: 'center',
+              }}>
+                <div style={{ fontSize: 8, color: colors.traveler + '99', textTransform: 'uppercase' }}>Traveler</div>
+                <div style={{ fontFamily: DISPLAY, fontSize: 18, color: colors.traveler, marginTop: 2 }}>{tauTravTotal.toFixed(2)}</div>
+              </div>
+            </div>
+            <div style={{ textAlign: 'center', fontSize: 10, color: colors.textDim }}>
+              Traveler aged <span style={{ color: colors.traveler }}>{pctLess}%</span> less
+            </div>
+          </Panel>
+
+          <Panel title="The Metric" style={twinMetricPanelStyle} titleStyle={twinTitleStyle}>
+            <div style={{ fontFamily: DISPLAY, fontSize: 16, color: 'rgba(255,255,255,0.7)', textAlign: 'center', fontStyle: 'italic', lineHeight: 1.6 }}>
+              dτ² = dt² − dr²
+            </div>
+            <div style={{ fontSize: 9.5, color: colors.textDim, marginTop: 8, lineHeight: 1.6 }}>
+              Home: dr=0 → dτ=dt
+              <br />
+              Traveler: dr≠0 → dτ&lt;dt
+              <br />
+              <span style={{ fontStyle: 'italic', color: colors.textGhost }}>
+                Every instant with spatial motion costs proper time.
+              </span>
+            </div>
+          </Panel>
+        </div>
+      </div>
+    </div>
+  );
+}
