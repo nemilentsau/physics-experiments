@@ -7,7 +7,10 @@
       "Bash(rm -rf src/assets src/App.css src/index.css)",
       "Bash(mkdir -p src/physics src/rendering src/hooks src/components/ui src/experiences/twin-paradox src/experiences/light-cone-explorer src/experiences/lorentz-boost src/experiences/reference-frames)",
       "mcp__Claude_Preview__preview_start",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(wc -l /Users/andreinemilentsau/Projects/physics-experiments/minkowski-space-time-app/src/**/*.jsx /Users/andreinemilentsau/Projects/physics-experiments/minkowski-space-time-app/src/**/*.js)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest:*)"
     ]
   }
 }
