@@ -1,14 +1,20 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 // Canvas drag interaction: pixel coords ↔ spacetime coords
 // toSpacetime(px, py, W, H) → {x, t}
 // findHit(x, t, items) → index or -1
-export function useDragInteraction(canvasRef, toSpacetime, findHit, onDrag, onDragEnd) {
+export function useDragInteraction(
+  canvasRef: React.RefObject<HTMLCanvasElement | null>,
+  toSpacetime: (px: number, py: number, W: number, H: number) => { x: number; t: number },
+  findHit: (x: number, t: number) => number,
+  onDrag: (index: number, x: number, t: number) => void,
+  onDragEnd: ((index: number) => void) | undefined
+): { dragging: number; hovering: number } {
   const [dragging, setDragging] = useState(-1);
   const [hovering, setHovering] = useState(-1);
   const dragRef = useRef(-1);
 
-  const getCoords = useCallback((e) => {
+  const getCoords = useCallback((e: MouseEvent) => {
     const canvas = canvasRef.current;
     if (!canvas) return null;
     const rect = canvas.getBoundingClientRect();
@@ -23,7 +29,7 @@ export function useDragInteraction(canvasRef, toSpacetime, findHit, onDrag, onDr
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const handleMouseDown = (e) => {
+    const handleMouseDown = (e: MouseEvent) => {
       const coords = getCoords(e);
       if (!coords) return;
       const hit = findHit(coords.x, coords.t);
@@ -34,7 +40,7 @@ export function useDragInteraction(canvasRef, toSpacetime, findHit, onDrag, onDr
       }
     };
 
-    const handleMouseMove = (e) => {
+    const handleMouseMove = (e: MouseEvent) => {
       const coords = getCoords(e);
       if (!coords) return;
       if (dragRef.current >= 0) {

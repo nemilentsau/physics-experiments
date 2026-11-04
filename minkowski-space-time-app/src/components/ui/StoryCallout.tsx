@@ -1,4 +1,14 @@
-import { DISPLAY, MONO, colors } from '../../rendering/theme.js';
+import { DISPLAY, MONO, colors } from '../../rendering/theme.ts';
+
+export interface StoryCalloutProps {
+  label?: string;
+  accent?: string;
+  badge?: string;
+  title: string;
+  body: string;
+  question: string;
+  answer: string;
+}
 
 export function StoryCallout({
   label = 'Live read',
@@ -8,7 +18,7 @@ export function StoryCallout({
   body,
   question,
   answer,
-}) {
+}: StoryCalloutProps) {
   return (
     <div style={{
       background: `

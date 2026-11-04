@@ -1,18 +1,32 @@
-import { useState, lazy, Suspense, useCallback, useEffect, useRef } from 'react';
-import { MONO, DISPLAY, colors, fonts } from './rendering/theme.js';
-import { useViewport } from './hooks/useViewport.js';
+import React, { useState, lazy, Suspense, useCallback, useEffect, useRef } from 'react';
+import { MONO, DISPLAY, colors, fonts } from './rendering/theme.ts';
+import { useViewport } from './hooks/useViewport.ts';
 import {
   DEFAULT_JOURNEY_STATE,
   buildUrlFromAppState,
   parseAppStateFromSearch,
-} from './state/shareableState.js';
+} from './state/shareableState.ts';
+import type { JourneyState } from './state/shareableState.ts';
 
-const TwinParadox = lazy(() => import('./experiences/twin-paradox/TwinParadox.jsx'));
-const LightConeExplorer = lazy(() => import('./experiences/light-cone-explorer/LightConeExplorer.jsx'));
-const LorentzBoost = lazy(() => import('./experiences/lorentz-boost/LorentzBoost.jsx'));
-const ReferenceFrames = lazy(() => import('./experiences/reference-frames/ReferenceFrames.jsx'));
+const TwinParadox = lazy(() => import('./experiences/twin-paradox/TwinParadox.tsx'));
+const LightConeExplorer = lazy(() => import('./experiences/light-cone-explorer/LightConeExplorer.tsx'));
+const LorentzBoost = lazy(() => import('./experiences/lorentz-boost/LorentzBoost.tsx'));
+const ReferenceFrames = lazy(() => import('./experiences/reference-frames/ReferenceFrames.tsx'));
 
-const experiences = [
+interface Experience {
+  id: string;
+  chapter: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  goal: string;
+  takeaway: string;
+  color: string;
+  icon: string;
+  Component: React.LazyExoticComponent<React.ComponentType<{ journeyState: JourneyState; onJourneyChange: (patch: Partial<JourneyState>) => void }>>;
+}
+
+const experiences: Experience[] = [
   {
     id: 'twin-paradox',
     chapter: 'Chapter 1',
@@ -63,7 +77,7 @@ const experiences = [
   },
 ];
 
-function ExperienceCard({ exp, onClick, compact }) {
+function ExperienceCard({ exp, onClick, compact }: { exp: Experience; onClick: () => void; compact: boolean }) {
   const [hovered, setHovered] = useState(false);
   return (
     <div
@@ -170,8 +184,8 @@ function ExperienceCard({ exp, onClick, compact }) {
   );
 }
 
-function Landing({ onSelect, isCompact, isMobile }) {
-  const starter = experiences[0];
+function Landing({ onSelect, isCompact, isMobile }: { onSelect: (id: string) => void; isCompact: boolean; isMobile: boolean }) {
+  const starter = experiences[0]!;
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: isMobile ? '20px 14px 36px' : '36px 20px 54px' }}>
       <div style={{
@@ -377,7 +391,7 @@ function Landing({ onSelect, isCompact, isMobile }) {
   );
 }
 
-function NavBar({ current, onSelect, onHome, currentExp, currentIndex, isCompact, isMobile }) {
+function NavBar({ current, onSelect, onHome, currentExp, currentIndex, isCompact, isMobile }: { current: string; onSelect: (id: string | null) => void; onHome: () => void; currentExp: Experience | null; currentIndex: number; isCompact: boolean; isMobile: boolean }) {
   return (
     <div style={{
       display: 'flex',
@@ -465,7 +479,7 @@ function NavBar({ current, onSelect, onHome, currentExp, currentIndex, isCompact
   );
 }
 
-function ChapterHeader({ exp, index, onPrevious, onNext, hasPrevious, hasNext, isCompact, isMobile }) {
+function ChapterHeader({ exp, index, onPrevious, onNext, hasPrevious, hasNext, isCompact, isMobile }: { exp: Experience; index: number; onPrevious: () => void; onNext: () => void; hasPrevious: boolean; hasNext: boolean; isCompact: boolean; isMobile: boolean }) {
   return (
     <div style={{
       maxWidth: 1280,
@@ -618,28 +632,27 @@ export default function App() {
   const initialUrlState = typeof window === 'undefined'
     ? { activeExp: null, journeyState: DEFAULT_JOURNEY_STATE }
     : parseAppStateFromSearch(window.location.search);
-  const [activeExp, setActiveExp] = useState(initialUrlState.activeExp);
+  const [activeExp, setActiveExp] = useState<string | null>(initialUrlState.activeExp);
   const { isCompact, isMobile } = useViewport();
   const [journeyState, setJourneyState] = useState(initialUrlState.journeyState);
-  const previousActiveExpRef = useRef(initialUrlState.activeExp);
+  const previousActiveExpRef = useRef<string | null>(initialUrlState.activeExp);
 
   const currentIndex = activeExp
     ? experiences.findIndex(e => e.id === activeExp)
     : -1;
-  const currentExp = currentIndex >= 0 ? experiences[currentIndex] : null;
+  const currentExp: Experience | null = currentIndex >= 0 ? experiences[currentIndex] ?? null : null;
   const ActiveComponent = currentExp?.Component ?? null;
-  const updateJourneyState = useCallback((patch) => {
+  const updateJourneyState = useCallback((patch: Partial<JourneyState>) => {
     setJourneyState((prev) => {
       let changed = false;
       const next = { ...prev };
-
-      Object.entries(patch).forEach(([key, value]) => {
-        if (next[key] !== value) {
-          next[key] = value;
+      (Object.keys(patch) as Array<keyof JourneyState>).forEach((key) => {
+        const value = patch[key];
+        if (next[key] !== value && value !== undefined) {
+          (next as Record<string, unknown>)[key] = value;
           changed = true;
         }
       });
-
       return changed ? next : prev;
     });
   }, []);
@@ -654,12 +667,12 @@ export default function App() {
           : '';
 
   const goPrevious = () => {
-    if (currentIndex > 0) setActiveExp(experiences[currentIndex - 1].id);
+    if (currentIndex > 0) setActiveExp(experiences[currentIndex - 1]!.id);
   };
 
   const goNext = () => {
     if (currentIndex >= 0 && currentIndex < experiences.length - 1) {
-      setActiveExp(experiences[currentIndex + 1].id);
+      setActiveExp(experiences[currentIndex + 1]!.id);
     }
   };
 
@@ -693,7 +706,7 @@ export default function App() {
       return;
     }
 
-    const historyMethod = previousActiveExpRef.current !== activeExp ? 'pushState' : 'replaceState';
+    const historyMethod: 'pushState' | 'replaceState' = previousActiveExpRef.current !== activeExp ? 'pushState' : 'replaceState';
     window.history[historyMethod](null, '', nextUrl);
     previousActiveExpRef.current = activeExp;
   }, [activeExp, journeyState]);
@@ -769,7 +782,7 @@ export default function App() {
                     </div>
                     <div style={{ fontSize: isMobile ? 10 : 11, color: colors.textDim, lineHeight: 1.7 }}>
                       {currentIndex < experiences.length - 1
-                        ? `${experiences[currentIndex + 1].title}: ${experiences[currentIndex + 1].goal}`
+                        ? `${experiences[currentIndex + 1]!.title}: ${experiences[currentIndex + 1]!.goal}`
                         : 'You reached the sandbox chapter. From here, revisit any concept and experiment freely.'}
                     </div>
                     {continuityNote && (

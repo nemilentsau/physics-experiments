@@ -1,6 +1,12 @@
-import { MONO } from '../../rendering/theme.js';
+import { MONO } from '../../rendering/theme.ts';
 
-export function RateMeter({ rate, color, height = 180 }) {
+interface RateMeterProps {
+  rate: number;
+  color: string;
+  height?: number;
+}
+
+export function RateMeter({ rate, color, height = 180 }: RateMeterProps) {
   const fillH = rate * (height - 20);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>

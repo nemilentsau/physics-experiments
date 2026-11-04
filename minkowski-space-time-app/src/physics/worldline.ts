@@ -1,12 +1,36 @@
 // Twin paradox worldline physics — extracted from twin-paradox-v2.jsx
 
+export type TravelerPhase = 'pre' | 'outbound' | 'turnaround' | 'return';
+
+export interface TravelerState {
+  x: number;
+  v: number;
+  phase: TravelerPhase;
+}
+
+export interface WorldlinePoint {
+  t: number;
+  x: number;
+  v: number;
+  phase: TravelerPhase;
+}
+
+export interface TimelineDataPoint {
+  t: number;
+  rate: number;
+  tauHome: number;
+  tauTrav: number;
+  speed: number;
+  phase: TravelerPhase;
+}
+
 // Get traveler state at any coordinate time
-export function getTravelerState(t, v, tOutbound, accelDuration) {
+export function getTravelerState(t: number, v: number, tOutbound: number, accelDuration: number): TravelerState {
   const tA1 = tOutbound - accelDuration;
   const tA2 = tOutbound + accelDuration;
   const totalAccelTime = 2 * accelDuration;
 
-  let x, localV, phase;
+  let x: number, localV: number, phase: TravelerPhase;
 
   if (t <= 0) {
     return { x: 0, v: v, phase: "pre" };
@@ -32,14 +56,14 @@ export function getTravelerState(t, v, tOutbound, accelDuration) {
 }
 
 // Numerically integrate proper time along the traveler's worldline
-export function integrateProperTime(tEnd, v, tOutbound, accelDuration) {
+export function integrateProperTime(tEnd: number, v: number, tOutbound: number, accelDuration: number): number {
   if (tEnd <= 0) return 0;
   const steps = 500;
   const dt = tEnd / steps;
   let tau = 0;
   for (let i = 0; i < steps; i++) {
     const t = (i + 0.5) * dt;
-    const state = getTravelerState(t, v, tOutbound, accelDuration, 0);
+    const state = getTravelerState(t, v, tOutbound, accelDuration);
     const speed = Math.abs(state.v);
     tau += Math.sqrt(1 - speed * speed) * dt;
   }
@@ -47,22 +71,22 @@ export function integrateProperTime(tEnd, v, tOutbound, accelDuration) {
 }
 
 // Generate worldline points for rendering
-export function buildWorldlinePoints(v, tOutbound, accelDuration, tTotal, numPoints = 400) {
-  const points = [];
+export function buildWorldlinePoints(v: number, tOutbound: number, accelDuration: number, tTotal: number, numPoints: number = 400): WorldlinePoint[] {
+  const points: WorldlinePoint[] = [];
   for (let i = 0; i <= numPoints; i++) {
     const t = (i / numPoints) * tTotal;
-    const state = getTravelerState(t, v, tOutbound, accelDuration, 0);
+    const state = getTravelerState(t, v, tOutbound, accelDuration);
     points.push({ t, x: state.x, v: state.v, phase: state.phase });
   }
   return points;
 }
 
 // Collect timeline data for charts
-export function buildTimelineData(v, tOutbound, accelDuration, tTotal, numPoints = 200) {
-  const data = [];
+export function buildTimelineData(v: number, tOutbound: number, accelDuration: number, tTotal: number, numPoints: number = 200): TimelineDataPoint[] {
+  const data: TimelineDataPoint[] = [];
   for (let i = 0; i <= numPoints; i++) {
     const t = (i / numPoints) * tTotal;
-    const state = getTravelerState(t, v, tOutbound, accelDuration, 0);
+    const state = getTravelerState(t, v, tOutbound, accelDuration);
     const speed = Math.abs(state.v);
     const rate = Math.sqrt(1 - speed * speed);
     const tauTrav = integrateProperTime(t, v, tOutbound, accelDuration);
@@ -72,7 +96,7 @@ export function buildTimelineData(v, tOutbound, accelDuration, tTotal, numPoints
 }
 
 // Binary search for coordinate time giving a specific proper time
-export function coordinateTimeForProperTime(targetTau, v, tOutbound, accelDuration, tTotal) {
+export function coordinateTimeForProperTime(targetTau: number, v: number, tOutbound: number, accelDuration: number, tTotal: number): number {
   let lo = 0, hi = tTotal;
   for (let iter = 0; iter < 40; iter++) {
     const mid = (lo + hi) / 2;

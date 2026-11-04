@@ -1,8 +1,8 @@
-import { useRef, useEffect } from 'react';
+import React, { useRef, useEffect } from 'react';
 
 // Enhanced canvas hook with DPR handling and ResizeObserver
-export function useCanvas(draw) {
-  const ref = useRef(null);
+export function useCanvas(draw: (ctx: CanvasRenderingContext2D, width: number, height: number) => void): React.RefObject<HTMLCanvasElement | null> {
+  const ref = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -10,6 +10,7 @@ export function useCanvas(draw) {
 
     const render = () => {
       const ctx = canvas.getContext('2d');
+      if (!ctx) return;
       const dpr = window.devicePixelRatio || 1;
       const W = canvas.clientWidth;
       const H = canvas.clientHeight;

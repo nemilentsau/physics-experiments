@@ -1,18 +1,33 @@
 import { useEffect, useState } from 'react';
-import { gamma, boostEvent } from '../../physics/lorentz.js';
-import { useCanvas } from '../../hooks/useCanvas.js';
-import { useViewport } from '../../hooks/useViewport.js';
-import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
-import { getBoostMissionStatus } from '../../logic/missions.js';
-import { Panel } from '../../components/ui/Panel.jsx';
-import { Slider } from '../../components/ui/Slider.jsx';
-import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
-import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
-import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
+import { gamma, boostEvent } from '../../physics/lorentz.ts';
+import { useCanvas } from '../../hooks/useCanvas.ts';
+import { useViewport } from '../../hooks/useViewport.ts';
+import { MONO, DISPLAY, colors } from '../../rendering/theme.ts';
+import { getBoostMissionStatus } from '../../logic/missions.ts';
+import { JourneyState } from '../../state/shareableState.ts';
+import { Panel } from '../../components/ui/Panel.tsx';
+import { Slider } from '../../components/ui/Slider.tsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.tsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.tsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.tsx';
+
+interface ExperienceProps {
+  journeyState: JourneyState;
+  onJourneyChange: (patch: Partial<JourneyState>) => void;
+}
+
+interface StoryBeat {
+  accent: string;
+  badge: string;
+  title: string;
+  body: string;
+  question: string;
+  answer: string;
+}
 
 const RANGE = 6;
 
-function getBoostStoryBeat(boostV, g) {
+function getBoostStoryBeat(boostV: number, g: number): StoryBeat {
   const absV = Math.abs(boostV);
   const direction = boostV < 0 ? 'left' : 'right';
 
@@ -59,7 +74,7 @@ function getBoostStoryBeat(boostV, g) {
   };
 }
 
-export default function LorentzBoost({ journeyState, onJourneyChange }) {
+export default function LorentzBoost({ journeyState, onJourneyChange }: ExperienceProps) {
   const [boostV, setBoostV] = useState(journeyState?.boostBeta ?? journeyState?.beta ?? 0);
   const [showOriginalGrid, setShowOriginalGrid] = useState(true);
   const [showRulers, setShowRulers] = useState(true);
@@ -70,8 +85,8 @@ export default function LorentzBoost({ journeyState, onJourneyChange }) {
   const g = boostV !== 0 ? gamma(boostV) : 1;
   const storyBeat = getBoostStoryBeat(boostV, g);
   const absBoost = Math.abs(boostV);
-  const clampPercent = (value) => Math.max(8, Math.min(92, value));
-  const toCanvasPercent = (x, t) => ({
+  const clampPercent = (value: number): number => Math.max(8, Math.min(92, value));
+  const toCanvasPercent = (x: number, t: number) => ({
     left: clampPercent(((x + RANGE) / (2 * RANGE)) * 100),
     top: clampPercent(((RANGE - t) / (2 * RANGE)) * 100),
   });
@@ -80,7 +95,7 @@ export default function LorentzBoost({ journeyState, onJourneyChange }) {
     : toCanvasPercent(boostV * RANGE * 0.68, RANGE * 0.68);
   const coneAnnotation = toCanvasPercent(RANGE * 0.78, RANGE * 0.78);
   const simultaneityAnnotation = toCanvasPercent(RANGE * 0.62, boostV * RANGE * 0.62);
-  const techShellStyle = {
+  const techShellStyle: React.CSSProperties = {
     position: 'relative',
     maxWidth: 1320,
     margin: '0 auto',
@@ -182,7 +197,7 @@ export default function LorentzBoost({ journeyState, onJourneyChange }) {
   }, [activeMission, boostV, onJourneyChange]);
 
   const canvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       const m = { top: 30, bottom: 40, left: 50, right: 50 };
       const pW = W - m.left - m.right;
       const pH = H - m.top - m.bottom;
@@ -191,7 +206,7 @@ export default function LorentzBoost({ journeyState, onJourneyChange }) {
 
       const scale = Math.min(pW, pH) / (2 * RANGE);
 
-      const toP = (x, t) => ({
+      const toP = (x: number, t: number) => ({
         px: cx + x * scale,
         py: cy - t * scale,
       });
@@ -205,7 +220,7 @@ export default function LorentzBoost({ journeyState, onJourneyChange }) {
       ctx.lineWidth = 2;
       ctx.setLineDash([6, 4]);
       const lcRange = RANGE;
-      [[-1, 1], [1, 1], [-1, -1], [1, -1]].forEach(([sx, st]) => {
+      ([[-1, 1], [1, 1], [-1, -1], [1, -1]] as [number, number][]).forEach(([sx, st]) => {
         const p1 = toP(0, 0);
         const p2 = toP(sx * lcRange, st * lcRange);
         ctx.beginPath();

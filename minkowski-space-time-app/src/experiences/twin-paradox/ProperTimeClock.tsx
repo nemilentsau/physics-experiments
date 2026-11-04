@@ -1,13 +1,22 @@
 import { useRef, useEffect } from 'react';
-import { DISPLAY } from '../../rendering/theme.js';
+import { DISPLAY } from '../../rendering/theme.ts';
 
-export function ProperTimeClock({ tau, maxTau, color, label, size = 120 }) {
-  const canvasRef = useRef(null);
+interface ProperTimeClockProps {
+  tau: number;
+  maxTau: number;
+  color: string;
+  label: string;
+  size?: number;
+}
+
+export function ProperTimeClock({ tau, maxTau, color, label, size = 120 }: ProperTimeClockProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size * dpr;
     canvas.height = size * dpr;

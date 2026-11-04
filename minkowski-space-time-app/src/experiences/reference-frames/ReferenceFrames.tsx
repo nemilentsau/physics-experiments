@@ -1,18 +1,50 @@
 import { useEffect, useState } from 'react';
-import { boostEvent } from '../../physics/lorentz.js';
-import { getTravelerState, integrateProperTime } from '../../physics/worldline.js';
-import { useCanvas } from '../../hooks/useCanvas.js';
-import { useAnimationLoop } from '../../hooks/useAnimationLoop.js';
-import { useViewport } from '../../hooks/useViewport.js';
-import { getFrameMissionStatus } from '../../logic/missions.js';
-import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
-import { Panel } from '../../components/ui/Panel.jsx';
-import { Slider } from '../../components/ui/Slider.jsx';
-import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
-import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
-import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
+import { boostEvent } from '../../physics/lorentz.ts';
+import { getTravelerState, integrateProperTime, TravelerState } from '../../physics/worldline.ts';
+import { useCanvas } from '../../hooks/useCanvas.ts';
+import { useAnimationLoop } from '../../hooks/useAnimationLoop.ts';
+import { useViewport } from '../../hooks/useViewport.ts';
+import { getFrameMissionStatus } from '../../logic/missions.ts';
+import { MONO, DISPLAY, colors } from '../../rendering/theme.ts';
+import { JourneyState } from '../../state/shareableState.ts';
+import { Panel } from '../../components/ui/Panel.tsx';
+import { Slider } from '../../components/ui/Slider.tsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.tsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.tsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.tsx';
 
-function getReferenceFrameBeat({ currentT, tTotal, travState, tauTrav, velocity }) {
+interface ExperienceProps {
+  journeyState: JourneyState;
+  onJourneyChange: (patch: Partial<JourneyState>) => void;
+}
+
+interface StoryBeat {
+  accent: string;
+  badge: string;
+  title: string;
+  body: string;
+  question: string;
+  answer: string;
+}
+
+interface DiagramParams {
+  v: number;
+  L: number;
+  tOutbound: number;
+  tTotal: number;
+  accelDuration: number;
+  currentT: number;
+  boostVelocity: number;
+  frameLabel: string;
+}
+
+function getReferenceFrameBeat({ currentT, tTotal, travState, tauTrav, velocity }: {
+  currentT: number;
+  tTotal: number;
+  travState: TravelerState;
+  tauTrav: number;
+  velocity: number;
+}): StoryBeat {
   if (currentT < tTotal * 0.04) {
     return {
       accent: colors.lightCone,
@@ -67,7 +99,7 @@ function getReferenceFrameBeat({ currentT, tTotal, travState, tauTrav, velocity 
   };
 }
 
-function drawSpacetimeDiagram(ctx, W, H, params) {
+function drawSpacetimeDiagram(ctx: CanvasRenderingContext2D, W: number, H: number, params: DiagramParams): void {
   const { v, L, tOutbound, tTotal, accelDuration, currentT, boostVelocity, frameLabel } = params;
   const m = { top: 30, bottom: 30, left: 40, right: 20 };
   const pW = W - m.left - m.right;
@@ -75,7 +107,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
   const maxT = tTotal * 1.15;
   const maxX = L * 2;
 
-  const toP = (x, t) => ({
+  const toP = (x: number, t: number) => ({
     px: m.left + pW / 2 + (x / maxX) * (pW / 2),
     py: H - m.bottom - (t / maxT) * pH,
   });
@@ -116,7 +148,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
   for (let i = 0; i <= steps; i++) {
     const t = (i / steps) * tTotal;
     if (t > currentT) break;
-    const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+    const st = getTravelerState(t, v, tOutbound, accelDuration);
 
     let homeX = 0, homeT = t;
     let travX = st.x, travT = t;
@@ -140,7 +172,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
     ctx.shadowColor = colors.home;
     ctx.shadowBlur = 6;
     ctx.beginPath();
-    ctx.moveTo(toP(homePoints[0].x, homePoints[0].t).px, toP(homePoints[0].x, homePoints[0].t).py);
+    ctx.moveTo(toP(homePoints[0]!.x, homePoints[0]!.t).px, toP(homePoints[0]!.x, homePoints[0]!.t).py);
     homePoints.forEach(p => {
       const pp = toP(p.x, p.t);
       ctx.lineTo(pp.px, pp.py);
@@ -156,7 +188,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
     ctx.shadowColor = colors.traveler;
     ctx.shadowBlur = 6;
     ctx.beginPath();
-    ctx.moveTo(toP(travPoints[0].x, travPoints[0].t).px, toP(travPoints[0].x, travPoints[0].t).py);
+    ctx.moveTo(toP(travPoints[0]!.x, travPoints[0]!.t).px, toP(travPoints[0]!.x, travPoints[0]!.t).py);
     travPoints.forEach(p => {
       const pp = toP(p.x, p.t);
       ctx.lineTo(pp.px, pp.py);
@@ -167,7 +199,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
 
   // Current position dots
   if (homePoints.length > 0 && currentT < tTotal) {
-    const lastHome = homePoints[homePoints.length - 1];
+    const lastHome = homePoints[homePoints.length - 1]!;
     const hp = toP(lastHome.x, lastHome.t);
     ctx.fillStyle = colors.home;
     ctx.shadowColor = colors.home;
@@ -176,7 +208,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
     ctx.shadowBlur = 0;
   }
   if (travPoints.length > 0 && currentT < tTotal) {
-    const lastTrav = travPoints[travPoints.length - 1];
+    const lastTrav = travPoints[travPoints.length - 1]!;
     const tp = toP(lastTrav.x, lastTrav.t);
     ctx.fillStyle = colors.traveler;
     ctx.shadowColor = colors.traveler;
@@ -186,7 +218,9 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
   }
 
   // Event labels
-  const drawEvt = (x, t, col, lbl) => {
+  const drawEvt = (xIn: number, tIn: number, col: string, lbl: string) => {
+    let x = xIn;
+    let t = tIn;
     if (boostVelocity !== 0) {
       const b = boostEvent(t, x, boostVelocity);
       x = b.x; t = b.t;
@@ -204,7 +238,7 @@ function drawSpacetimeDiagram(ctx, W, H, params) {
   drawEvt(0, tTotal, '#fff', 'reunite');
 }
 
-export default function ReferenceFrames({ journeyState, onJourneyChange }) {
+export default function ReferenceFrames({ journeyState, onJourneyChange }: ExperienceProps) {
   const [velocity, setVelocity] = useState(journeyState?.beta ?? 0.6);
   const [tripDistance, setTripDistance] = useState(journeyState?.tripDistance ?? 4);
   const [activeMission, setActiveMission] = useState(journeyState?.frameMission ?? 'turnaround');
@@ -220,11 +254,11 @@ export default function ReferenceFrames({ journeyState, onJourneyChange }) {
   const currentT = animProgress * tTotal;
 
   // Get traveler's current velocity for the "ride along" boost
-  const travState = getTravelerState(currentT, v, tOutbound, accelDuration, L);
+  const travState = getTravelerState(currentT, v, tOutbound, accelDuration);
 
   // Home frame (no boost)
   const homeCanvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       drawSpacetimeDiagram(ctx, W, H, {
         v, L, tOutbound, tTotal, accelDuration, currentT,
         boostVelocity: 0,
@@ -235,7 +269,7 @@ export default function ReferenceFrames({ journeyState, onJourneyChange }) {
 
   // Traveler's instantaneous rest frame
   const travelerCanvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       drawSpacetimeDiagram(ctx, W, H, {
         v, L, tOutbound, tTotal, accelDuration, currentT,
         boostVelocity: travState.v,
@@ -252,10 +286,12 @@ export default function ReferenceFrames({ journeyState, onJourneyChange }) {
     tauTrav,
     velocity,
   });
-  const clampPercent = (value) => Math.max(8, Math.min(92, value));
+  const clampPercent = (value: number): number => Math.max(8, Math.min(92, value));
   const frameMaxT = tTotal * 1.15;
   const frameMaxX = L * 2;
-  const toFramePercent = (x, t, boostVelocity = 0) => {
+  const toFramePercent = (xIn: number, tIn: number, boostVelocity: number = 0) => {
+    let x = xIn;
+    let t = tIn;
     if (boostVelocity !== 0) {
       const boosted = boostEvent(t, x, boostVelocity);
       x = boosted.x;
@@ -271,7 +307,7 @@ export default function ReferenceFrames({ journeyState, onJourneyChange }) {
   const travelerTurnAnnotation = toFramePercent(L, tOutbound, travState.v);
   const travelerCurrentAnnotation = toFramePercent(travState.x, currentT, travState.v);
   const travelerReunionAnnotation = toFramePercent(0, tTotal, travState.v);
-  const frameShellStyle = {
+  const frameShellStyle: React.CSSProperties = {
     position: 'relative',
     maxWidth: 1320,
     margin: '0 auto',

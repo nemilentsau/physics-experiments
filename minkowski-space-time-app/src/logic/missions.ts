@@ -1,5 +1,51 @@
-import { causalRelation, intervalSquared } from '../physics/lorentz.js';
-import { isInCausalFuture, isInCausalPast } from '../physics/spacetime.js';
+import { causalRelation, intervalSquared, CausalRelation } from '../physics/lorentz.ts';
+import { isInCausalFuture, isInCausalPast } from '../physics/spacetime.ts';
+import type { TravelerPhase } from '../physics/worldline.ts';
+
+export interface MissionStatus {
+  complete: boolean;
+  label: string;
+  detail: string;
+}
+
+interface TwinMissionParams {
+  missionId: string;
+  animProgress: number;
+  tauHomeCurrent: number;
+  tauTravCurrent: number;
+  accelFraction: number;
+  velocity: number;
+  pctLess: string | number;
+}
+
+interface BoostMissionParams {
+  missionId: string;
+  boostV: number;
+  showSimultaneity: boolean;
+}
+
+interface FrameMissionParams {
+  missionId: string;
+  animProgress: number;
+  travelerPhase: TravelerPhase;
+}
+
+interface LightConeEvent {
+  label: string;
+  x: number;
+  t: number;
+}
+
+export interface LightConeMissionResult {
+  eventA: LightConeEvent | undefined;
+  eventB: LightConeEvent | undefined;
+  eventC: LightConeEvent | undefined;
+  boundaryS2: number | null;
+  boundaryComplete: boolean;
+  acausalRelation: CausalRelation | null;
+  pastFutureComplete: boolean;
+  status: MissionStatus;
+}
 
 export function getTwinMissionStatus({
   missionId,
@@ -9,7 +55,7 @@ export function getTwinMissionStatus({
   accelFraction,
   velocity,
   pctLess,
-}) {
+}: TwinMissionParams): MissionStatus {
   if (missionId === 'coast-gap') {
     return {
       complete: animProgress > 0.4 && (tauHomeCurrent - tauTravCurrent) > 0.5,
@@ -33,7 +79,7 @@ export function getTwinMissionStatus({
   };
 }
 
-export function getBoostMissionStatus({ missionId, boostV, showSimultaneity }) {
+export function getBoostMissionStatus({ missionId, boostV, showSimultaneity }: BoostMissionParams): MissionStatus {
   if (missionId === 'tilt') {
     return {
       complete: Math.abs(boostV) >= 0.55,
@@ -57,7 +103,7 @@ export function getBoostMissionStatus({ missionId, boostV, showSimultaneity }) {
   };
 }
 
-export function getFrameMissionStatus({ missionId, animProgress, travelerPhase }) {
+export function getFrameMissionStatus({ missionId, animProgress, travelerPhase }: FrameMissionParams): MissionStatus {
   if (missionId === 'turnaround') {
     return {
       complete: animProgress >= 0.46 && animProgress <= 0.54,
@@ -81,7 +127,7 @@ export function getFrameMissionStatus({ missionId, animProgress, travelerPhase }
   };
 }
 
-export function getLightConeMissionStatus(events, missionId) {
+export function getLightConeMissionStatus(events: LightConeEvent[], missionId: string): LightConeMissionResult {
   const eventA = events.find((event) => event.label === 'A');
   const eventB = events.find((event) => event.label === 'B');
   const eventC = events.find((event) => event.label === 'C');

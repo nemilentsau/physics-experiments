@@ -4,7 +4,7 @@ import {
   getFrameMissionStatus,
   getLightConeMissionStatus,
   getTwinMissionStatus,
-} from './missions.js';
+} from './missions.ts';
 
 describe('mission evaluators', () => {
   it('marks the twin high-gamma mission complete only at reunion-scale settings', () => {

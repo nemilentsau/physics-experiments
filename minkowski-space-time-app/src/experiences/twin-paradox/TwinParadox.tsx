@@ -1,19 +1,34 @@
 import { useEffect, useState } from 'react';
-import { gamma, dtaudt } from '../../physics/lorentz.js';
-import { getTravelerState, integrateProperTime } from '../../physics/worldline.js';
-import { useCanvas } from '../../hooks/useCanvas.js';
-import { useAnimationLoop } from '../../hooks/useAnimationLoop.js';
-import { useViewport } from '../../hooks/useViewport.js';
-import { getTwinMissionStatus } from '../../logic/missions.js';
-import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
-import { Panel } from '../../components/ui/Panel.jsx';
-import { Slider } from '../../components/ui/Slider.jsx';
-import { Toggle } from '../../components/ui/Toggle.jsx';
-import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
-import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
-import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
-import { ProperTimeClock } from './ProperTimeClock.jsx';
-import { RateMeter } from './RateMeter.jsx';
+import { gamma, dtaudt } from '../../physics/lorentz.ts';
+import { getTravelerState, integrateProperTime, TravelerState } from '../../physics/worldline.ts';
+import { useCanvas } from '../../hooks/useCanvas.ts';
+import { useAnimationLoop } from '../../hooks/useAnimationLoop.ts';
+import { useViewport } from '../../hooks/useViewport.ts';
+import { getTwinMissionStatus } from '../../logic/missions.ts';
+import { MONO, DISPLAY, colors } from '../../rendering/theme.ts';
+import { JourneyState } from '../../state/shareableState.ts';
+import { Panel } from '../../components/ui/Panel.tsx';
+import { Slider } from '../../components/ui/Slider.tsx';
+import { Toggle } from '../../components/ui/Toggle.tsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.tsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.tsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.tsx';
+import { ProperTimeClock } from './ProperTimeClock.tsx';
+import { RateMeter } from './RateMeter.tsx';
+
+interface ExperienceProps {
+  journeyState: JourneyState;
+  onJourneyChange: (patch: Partial<JourneyState>) => void;
+}
+
+interface StoryBeat {
+  accent: string;
+  badge: string;
+  title: string;
+  body: string;
+  question: string;
+  answer: string;
+}
 
 function getTwinStoryBeat({
   currentT,
@@ -22,7 +37,14 @@ function getTwinStoryBeat({
   tauHomeCurrent,
   tauTravCurrent,
   pctLess,
-}) {
+}: {
+  currentT: number;
+  tTotal: number;
+  travState: TravelerState;
+  tauHomeCurrent: number;
+  tauTravCurrent: number;
+  pctLess: string;
+}): StoryBeat {
   const ageGap = tauHomeCurrent - tauTravCurrent;
 
   if (currentT < tTotal * 0.04) {
@@ -79,7 +101,7 @@ function getTwinStoryBeat({
   };
 }
 
-export default function TwinParadox({ journeyState, onJourneyChange }) {
+export default function TwinParadox({ journeyState, onJourneyChange }: ExperienceProps) {
   const [velocity, setVelocity] = useState(journeyState?.beta ?? 0.6);
   const [tripDistance, setTripDistance] = useState(journeyState?.tripDistance ?? 4);
   const [accelFraction, setAccelFraction] = useState(journeyState?.accelFraction ?? 0.08);
@@ -98,7 +120,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
   const accelDuration = accelFraction * tOutbound;
 
   const currentT = animProgress * tTotal;
-  const travState = getTravelerState(currentT, v, tOutbound, accelDuration, L);
+  const travState = getTravelerState(currentT, v, tOutbound, accelDuration);
   const travSpeed = Math.abs(travState.v);
   const currentRate = dtaudt(travSpeed);
   const tauTravCurrent = integrateProperTime(currentT, v, tOutbound, accelDuration);
@@ -119,17 +141,17 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
     tauTravCurrent,
     pctLess,
   });
-  const clampPercent = (value) => Math.max(8, Math.min(92, value));
+  const clampPercent = (value: number): number => Math.max(8, Math.min(92, value));
   const twinMaxT = tTotal * 1.12;
   const twinMaxX = L * 1.5;
-  const toCanvasPercent = (x, t) => ({
+  const toCanvasPercent = (x: number, t: number) => ({
     left: clampPercent(50 + (x / twinMaxX) * 50),
     top: clampPercent(100 - (t / twinMaxT) * 100),
   });
   const travelerAnnotation = toCanvasPercent(travState.x, currentT);
   const turnaroundAnnotation = toCanvasPercent(L, tOutbound);
   const reunionAnnotation = toCanvasPercent(0, tTotal);
-  const twinShellStyle = {
+  const twinShellStyle: React.CSSProperties = {
     position: 'relative',
     maxWidth: 1320,
     margin: '0 auto',
@@ -163,7 +185,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
     background: 'linear-gradient(180deg, rgba(255,200,50,0.08), rgba(255,255,255,0.015))',
     border: '1px solid rgba(255,200,50,0.16)',
   };
-  const twinCanvasFrameStyle = {
+  const twinCanvasFrameStyle: React.CSSProperties = {
     background: `
       radial-gradient(circle at top right, rgba(255,107,74,0.12), transparent 26%),
       linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.012))
@@ -253,14 +275,14 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
 
   // ── Main spacetime diagram ──
   const mainCanvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       const m = { top: 30, bottom: 40, left: 50, right: 30 };
       const pW = W - m.left - m.right;
       const pH = H - m.top - m.bottom;
       const maxT = tTotal * 1.12;
       const maxX = L * 1.5;
 
-      const toP = (x, t) => ({
+      const toP = (x: number, t: number) => ({
         px: m.left + pW / 2 + (x / maxX) * (pW / 2),
         py: H - m.bottom - (t / maxT) * pH,
       });
@@ -293,12 +315,12 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
       ctx.textAlign = 'center';
       for (let t = 1; t <= Math.floor(maxT); t++) {
         const p = toP(0, t);
-        ctx.fillText(t, p.px - 16, p.py + 3);
+        ctx.fillText(String(t), p.px - 16, p.py + 3);
       }
       for (let x = -Math.floor(maxX); x <= Math.floor(maxX); x++) {
         if (x === 0) continue;
         const p = toP(x, 0);
-        ctx.fillText(x, p.px, p.py + 14);
+        ctx.fillText(String(x), p.px, p.py + 14);
       }
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
       ctx.fillText('x (ly)', W / 2, H - 4);
@@ -355,7 +377,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
         for (let i = 1; i <= nLines; i++) {
           const tSim = (i / (nLines + 1)) * tTotal;
           if (tSim > currentT) continue;
-          const st = getTravelerState(tSim, v, tOutbound, accelDuration, L);
+          const st = getTravelerState(tSim, v, tOutbound, accelDuration);
           const lv = st.v;
           const sx = st.x;
           const x1 = -maxX;
@@ -415,7 +437,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
       for (let i = 1; i <= steps; i++) {
         const t = (i / steps) * tTotal;
         if (t > currentT) break;
-        const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+        const st = getTravelerState(t, v, tOutbound, accelDuration);
         const p = toP(st.x, t);
         ctx.lineTo(p.px, p.py);
       }
@@ -434,7 +456,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
           }
           const tCoord = (lo + hi) / 2;
           if (tCoord > currentT) break;
-          const st = getTravelerState(tCoord, v, tOutbound, accelDuration, L);
+          const st = getTravelerState(tCoord, v, tOutbound, accelDuration);
           const p = toP(st.x, tCoord);
           ctx.fillStyle = colors.traveler + 'aa';
           ctx.beginPath();
@@ -464,7 +486,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
       }
 
       // Event dots
-      const drawEvt = (x, t, col, lbl, ox, oy) => {
+      const drawEvt = (x: number, t: number, col: string, lbl: string, ox: number, oy: number) => {
         if (t > currentT && t > 0) return;
         const p = toP(x, t);
         ctx.fillStyle = col;
@@ -482,7 +504,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
 
   // ── dτ/dt rate chart ──
   const rateCanvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       const m = { top: 14, bottom: 24, left: 32, right: 8 };
       const pW = W - m.left - m.right;
       const pH = H - m.top - m.bottom;
@@ -490,7 +512,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
       ctx.fillStyle = colors.bg;
       ctx.fillRect(0, 0, W, H);
 
-      const toP = (t, r) => ({
+      const toP = (t: number, r: number) => ({
         px: m.left + (t / tTotal) * pW,
         py: H - m.bottom - r * pH,
       });
@@ -527,7 +549,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
       for (let i = 0; i <= steps; i++) {
         const t = (i / steps) * tTotal;
         if (t > currentT) break;
-        const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+        const st = getTravelerState(t, v, tOutbound, accelDuration);
         const rate = Math.sqrt(1 - st.v * st.v);
         const p = toP(t, rate);
         if (i === 0) ctx.moveTo(p.px, p.py);
@@ -544,7 +566,7 @@ export default function TwinParadox({ journeyState, onJourneyChange }) {
         for (let i = 0; i <= steps; i++) {
           const t = (i / steps) * tTotal;
           if (t > endT) break;
-          const st = getTravelerState(t, v, tOutbound, accelDuration, L);
+          const st = getTravelerState(t, v, tOutbound, accelDuration);
           const rate = Math.sqrt(1 - st.v * st.v);
           const p = toP(t, rate);
           ctx.lineTo(p.px, p.py);

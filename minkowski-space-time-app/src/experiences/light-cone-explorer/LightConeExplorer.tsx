@@ -1,48 +1,78 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useCanvas } from '../../hooks/useCanvas.js';
-import { useViewport } from '../../hooks/useViewport.js';
-import { causalRelation, intervalSquared } from '../../physics/lorentz.js';
-import { isInCausalFuture, isInCausalPast } from '../../physics/spacetime.js';
-import { getLightConeMissionStatus } from '../../logic/missions.js';
-import { MONO, DISPLAY, colors } from '../../rendering/theme.js';
+import { useCanvas } from '../../hooks/useCanvas.ts';
+import { useViewport } from '../../hooks/useViewport.ts';
+import { causalRelation, intervalSquared, CausalRelation } from '../../physics/lorentz.ts';
+import { isInCausalFuture, isInCausalPast } from '../../physics/spacetime.ts';
+import { getLightConeMissionStatus } from '../../logic/missions.ts';
+import { MONO, DISPLAY, colors } from '../../rendering/theme.ts';
 import {
+  JourneyState,
+  DecodedSceneEvent,
   DEFAULT_LIGHT_CONE_SCENE,
   decodeLightConeScene,
   encodeLightConeScene,
   getNextLightConeLabel,
-} from '../../state/shareableState.js';
-import { Panel } from '../../components/ui/Panel.jsx';
-import { StoryCallout } from '../../components/ui/StoryCallout.jsx';
-import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.jsx';
-import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.jsx';
+} from '../../state/shareableState.ts';
+import { Panel } from '../../components/ui/Panel.tsx';
+import { StoryCallout } from '../../components/ui/StoryCallout.tsx';
+import { GuidedMissionPanel } from '../../components/ui/GuidedMissionPanel.tsx';
+import { CanvasAnnotation } from '../../components/ui/CanvasAnnotation.tsx';
+
+interface ExperienceProps {
+  journeyState: JourneyState;
+  onJourneyChange: (patch: Partial<JourneyState>) => void;
+}
+
+interface EventPair {
+  i: number;
+  j: number;
+  a: DecodedSceneEvent;
+  b: DecodedSceneEvent;
+  relation: CausalRelation;
+  s2: number;
+}
+
+interface FocusRelation {
+  relation: CausalRelation;
+  isFuture: boolean;
+  isPast: boolean;
+}
+
+interface RelationCounts {
+  future: number;
+  past: number;
+  spacelike: number;
+  lightlike: number;
+  timelike: number;
+}
 
 const RANGE_X = 8;
 const RANGE_T = 10;
 const HIT_RADIUS = 0.3; // spacetime units
 
-const RELATION_COLORS = {
+const RELATION_COLORS: Record<CausalRelation, string> = {
   timelike: colors.timelike,
   spacelike: colors.spacelike,
   lightlike: colors.lightCone,
 };
 
-export default function LightConeExplorer({ journeyState, onJourneyChange }) {
+export default function LightConeExplorer({ journeyState, onJourneyChange }: ExperienceProps) {
   const initialEvents = decodeLightConeScene(journeyState?.lightConeScene ?? DEFAULT_LIGHT_CONE_SCENE);
   const initialSelected = initialEvents.find((event) => event.label === journeyState?.lightConeSelectedLabel) ?? null;
   const [events, setEvents] = useState(initialEvents);
-  const [selectedId, setSelectedId] = useState(initialSelected?.id ?? null);
-  const [hoveredId, setHoveredId] = useState(null);
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelected?.id ?? null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [showAllCones, setShowAllCones] = useState(true);
   const [showConnections, setShowConnections] = useState(true);
   const [nextLabel, setNextLabel] = useState(getNextLightConeLabel(initialEvents));
   const [activeMission, setActiveMission] = useState(journeyState?.lightConeMission ?? 'boundary');
   const [isDragging, setIsDragging] = useState(false);
-  const dragRef = useRef(null);
+  const dragRef = useRef<string | number | null>(null);
   const { isMobile, isTablet } = useViewport();
   const selected = events.find(e => e.id === selectedId);
   const hovered = events.find(e => e.id === hoveredId);
   const highlighted = selected || hovered;
-  const focusRelations = highlighted
+  const focusRelations: FocusRelation[] = highlighted
     ? events.filter(e => e.id !== highlighted.id).map(other => {
       const dt = other.t - highlighted.t;
       const dx = other.x - highlighted.x;
@@ -54,7 +84,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       };
     })
     : [];
-  const relationCounts = focusRelations.reduce((acc, rel) => {
+  const relationCounts = focusRelations.reduce<RelationCounts>((acc, rel) => {
     if (rel.relation === 'lightlike') acc.lightlike += 1;
     else if (rel.relation === 'spacelike') acc.spacelike += 1;
     else if (rel.isFuture) acc.future += 1;
@@ -118,7 +148,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       answer: 'No. It only means influence is possible without breaking relativity. Whether a signal was actually sent is a separate physical story.',
     };
   }
-  const labShellStyle = {
+  const labShellStyle: React.CSSProperties = {
     position: 'relative',
     maxWidth: 1320,
     margin: '0 auto',
@@ -158,7 +188,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
     letterSpacing: '0.18em',
   };
   const labCanvasHeight = isMobile ? 360 : isTablet ? 460 : 560;
-  const loadMissionScene = (sceneEvents, anchorId) => {
+  const loadMissionScene = (sceneEvents: DecodedSceneEvent[], anchorId: string | null) => {
     setEvents(sceneEvents);
     setSelectedId(anchorId);
     setHoveredId(null);
@@ -210,10 +240,10 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       ], 'mission-a'),
     },
   ];
-  const clampPercent = (value) => Math.max(8, Math.min(92, value));
+  const clampPercent = (value: number): number => Math.max(8, Math.min(92, value));
 
   // Coordinate transforms
-  const toPixel = useCallback((x, t, W, H) => {
+  const toPixel = useCallback((x: number, t: number, W: number, H: number) => {
     const m = { top: 30, bottom: 40, left: 50, right: 30 };
     const pW = W - m.left - m.right;
     const pH = H - m.top - m.bottom;
@@ -222,12 +252,12 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       py: H - m.bottom - (t / RANGE_T) * pH,
     };
   }, []);
-  const toCanvasPercent = (x, t) => ({
+  const toCanvasPercent = (x: number, t: number) => ({
     left: clampPercent(((x + RANGE_X) / (2 * RANGE_X)) * 100),
     top: clampPercent(100 - (t / RANGE_T) * 100),
   });
 
-  const toSpacetime = useCallback((px, py, W, H) => {
+  const toSpacetime = useCallback((px: number, py: number, W: number, H: number) => {
     const m = { top: 30, bottom: 40, left: 50, right: 30 };
     const pW = W - m.left - m.right;
     const pH = H - m.top - m.bottom;
@@ -239,7 +269,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
   const hitRadius = isMobile ? 0.55 : isTablet ? 0.42 : HIT_RADIUS;
 
   // Find event near a spacetime point
-  const findHit = useCallback((x, t) => {
+  const findHit = useCallback((x: number, t: number): number => {
     let closest = -1;
     let minDist = hitRadius;
     events.forEach((e, i) => {
@@ -250,7 +280,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
   }, [events, hitRadius]);
 
   // Canvas pointer handlers
-  const handleCanvasPointerDown = useCallback((e) => {
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
@@ -262,15 +292,15 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
     const hitIdx = findHit(coords.x, coords.t);
     if (hitIdx >= 0) {
       e.preventDefault();
-      dragRef.current = events[hitIdx].id;
+      dragRef.current = events[hitIdx]!.id;
       setIsDragging(true);
-      setSelectedId(events[hitIdx].id);
+      setSelectedId(events[hitIdx]!.id);
       canvas.setPointerCapture?.(e.pointerId);
     } else {
       // Place new event
       if (coords.t >= 0 && coords.t <= RANGE_T && coords.x >= -RANGE_X && coords.x <= RANGE_X) {
-        const newEvent = {
-          id: Date.now(),
+        const newEvent: DecodedSceneEvent = {
+          id: String(Date.now()),
           x: Math.round(coords.x * 4) / 4,
           t: Math.round(coords.t * 4) / 4,
           label: nextLabel,
@@ -282,7 +312,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
     }
   }, [events, findHit, toSpacetime, nextLabel]);
 
-  const handleCanvasPointerMove = useCallback((e) => {
+  const handleCanvasPointerMove = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = e.currentTarget;
     const rect = canvas.getBoundingClientRect();
     const px = e.clientX - rect.left;
@@ -300,14 +330,14 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       ));
     } else {
       const hitIdx = findHit(coords.x, coords.t);
-      setHoveredId(hitIdx >= 0 ? events[hitIdx].id : null);
+      setHoveredId(hitIdx >= 0 ? events[hitIdx]!.id : null);
       if (!isMobile) {
         canvas.style.cursor = hitIdx >= 0 ? 'grab' : 'crosshair';
       }
     }
   }, [events, findHit, isMobile, toSpacetime]);
 
-  const handleCanvasPointerUp = useCallback((e) => {
+  const handleCanvasPointerUp = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.releasePointerCapture?.(e.pointerId);
     dragRef.current = null;
     setIsDragging(false);
@@ -316,7 +346,7 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
     }
   }, [isMobile]);
 
-  const handleCanvasPointerLeave = useCallback((e) => {
+  const handleCanvasPointerLeave = useCallback((e: React.PointerEvent<HTMLCanvasElement>) => {
     if (dragRef.current === null) {
       setHoveredId(null);
       if (!isMobile) {
@@ -344,11 +374,11 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
         : 'Drag this event to watch the cone boundary and interval classes update live.',
     }
     : null;
-  const missionFocusEvent = activeMission === 'boundary'
+  const missionFocusEvent: DecodedSceneEvent | undefined = (activeMission === 'boundary'
     ? eventB
     : activeMission === 'acausal'
       ? eventC
-      : eventC ?? eventB;
+      : eventC ?? eventB) as DecodedSceneEvent | undefined;
   const missionAnnotation = missionFocusEvent
     ? {
       ...toCanvasPercent(missionFocusEvent.x, missionFocusEvent.t),
@@ -372,23 +402,23 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
     : null;
 
   // Compute all pairs
-  const pairs = [];
+  const pairs: EventPair[] = [];
   for (let i = 0; i < events.length; i++) {
     for (let j = i + 1; j < events.length; j++) {
-      const dt = events[j].t - events[i].t;
-      const dx = events[j].x - events[i].x;
+      const dt = events[j]!.t - events[i]!.t;
+      const dx = events[j]!.x - events[i]!.x;
       const relation = causalRelation(dt, dx);
       const s2 = intervalSquared(dt, dx);
-      pairs.push({ i, j, a: events[i], b: events[j], relation, s2 });
+      pairs.push({ i, j, a: events[i]!, b: events[j]!, relation, s2 });
     }
   }
 
   // Canvas drawing
   const canvasRef = useCanvas(
-    (ctx, W, H) => {
+    (ctx: CanvasRenderingContext2D, W: number, H: number) => {
       const m = { top: 30, bottom: 40, left: 50, right: 30 };
 
-      const toP = (x, t) => toPixel(x, t, W, H);
+      const toP = (x: number, t: number) => toPixel(x, t, W, H);
 
       // Background
       ctx.fillStyle = colors.bg;
@@ -419,12 +449,12 @@ export default function LightConeExplorer({ journeyState, onJourneyChange }) {
       ctx.textAlign = 'center';
       for (let t = 1; t <= RANGE_T; t++) {
         const p = toP(0, t);
-        ctx.fillText(t, p.px - 20, p.py + 3);
+        ctx.fillText(String(t), p.px - 20, p.py + 3);
       }
       for (let x = -RANGE_X; x <= RANGE_X; x += 2) {
         if (x === 0) continue;
         const p = toP(x, 0);
-        ctx.fillText(x, p.px, p.py + 14);
+        ctx.fillText(String(x), p.px, p.py + 14);
       }
       ctx.fillStyle = 'rgba(255,255,255,0.2)';
       ctx.fillText('x (ly)', W / 2, H - 4);

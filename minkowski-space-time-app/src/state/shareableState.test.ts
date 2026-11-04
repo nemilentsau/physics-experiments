@@ -4,7 +4,7 @@ import {
   buildSearchFromAppState,
   parseAppStateFromSearch,
   sanitizeJourneyState,
-} from './shareableState.js';
+} from './shareableState.ts';
 
 describe('shareable app state', () => {
   it('round-trips chapter, parameters, and light-cone scene through the URL', () => {

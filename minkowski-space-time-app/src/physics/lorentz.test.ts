@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { boostEvent, intervalSquared } from './lorentz.js';
-import { integrateProperTime } from './worldline.js';
+import { boostEvent, intervalSquared } from './lorentz.ts';
+import { integrateProperTime } from './worldline.ts';
 
 describe('Lorentz invariants', () => {
   it('preserves the interval under a boost', () => {

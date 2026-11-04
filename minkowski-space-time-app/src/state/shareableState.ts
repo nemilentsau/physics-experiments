@@ -1,4 +1,32 @@
-const EXPERIENCE_IDS = [
+export interface JourneyState {
+  beta: number;
+  boostBeta: number | null;
+  tripDistance: number;
+  accelFraction: number;
+  twinMission: string;
+  boostMission: string;
+  frameMission: string;
+  lightConeMission: string;
+  lightConeScene: string;
+  lightConeSelectedLabel: string | null;
+}
+
+export interface AppState {
+  activeExp: string | null;
+  journeyState: JourneyState;
+}
+
+interface SceneEntry {
+  label: string;
+  x: number;
+  t: number;
+}
+
+export interface DecodedSceneEvent extends SceneEntry {
+  id: string;
+}
+
+const EXPERIENCE_IDS: string[] = [
   'twin-paradox',
   'lorentz-boost',
   'reference-frames',
@@ -13,7 +41,7 @@ const LIGHT_CONE_MISSION_IDS = new Set(['boundary', 'acausal', 'past-future']);
 export const DEFAULT_LIGHT_CONE_SCENE = 'A:0,3|B:2,7|C:-3,5';
 const EMPTY_LIGHT_CONE_SCENE = 'empty';
 
-export const DEFAULT_JOURNEY_STATE = Object.freeze({
+export const DEFAULT_JOURNEY_STATE: Readonly<JourneyState> = Object.freeze({
   beta: 0.6,
   boostBeta: null,
   tripDistance: 4,
@@ -26,29 +54,31 @@ export const DEFAULT_JOURNEY_STATE = Object.freeze({
   lightConeSelectedLabel: null,
 });
 
-export const DEFAULT_APP_STATE = Object.freeze({
+export const DEFAULT_APP_STATE: Readonly<AppState> = Object.freeze({
   activeExp: null,
   journeyState: DEFAULT_JOURNEY_STATE,
 });
 
 const LIGHT_CONE_SCENE_PATTERN = /^([^:|]+):(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)$/;
 
-function clampNumber(value, min, max, fallback) {
+function clampNumber(value: number, min: number, max: number, fallback: number): number;
+function clampNumber(value: number, min: number, max: number, fallback: null): number | null;
+function clampNumber(value: number, min: number, max: number, fallback: number | null): number | null {
   if (!Number.isFinite(value)) return fallback;
   return Math.max(min, Math.min(max, value));
 }
 
-function sanitizeMission(value, validIds, fallback) {
-  return validIds.has(value) ? value : fallback;
+function sanitizeMission(value: string | null | undefined, validIds: Set<string>, fallback: string): string {
+  return value != null && validIds.has(value) ? value : fallback;
 }
 
-function formatNumber(value) {
+function formatNumber(value: number): string {
   return Number(value.toFixed(3)).toString();
 }
 
-function canonicalizeSceneEntries(entries) {
-  const deduped = [];
-  const seen = new Set();
+function canonicalizeSceneEntries(entries: Array<{ label?: string | null; x: number | string; t: number | string }>): SceneEntry[] {
+  const deduped: SceneEntry[] = [];
+  const seen = new Set<string>();
 
   entries.forEach((entry) => {
     const label = String(entry.label ?? '').trim().slice(0, 2).toUpperCase();
@@ -65,7 +95,7 @@ function canonicalizeSceneEntries(entries) {
   return deduped;
 }
 
-export function decodeLightConeScene(scene = DEFAULT_LIGHT_CONE_SCENE) {
+export function decodeLightConeScene(scene: string = DEFAULT_LIGHT_CONE_SCENE): DecodedSceneEvent[] {
   if (scene === EMPTY_LIGHT_CONE_SCENE) return [];
 
   const rawEntries = String(scene)
@@ -84,13 +114,13 @@ export function decodeLightConeScene(scene = DEFAULT_LIGHT_CONE_SCENE) {
         t: Number(match[3]),
       };
     })
-    .filter(Boolean);
+    .filter((entry): entry is { label: string; x: number; t: number } => entry !== null);
 
   const entries = canonicalizeSceneEntries(parsedEntries);
   const fallbackEntries = canonicalizeSceneEntries(
     DEFAULT_LIGHT_CONE_SCENE.split('|').map((segment) => {
-      const [, label, x, t] = segment.match(LIGHT_CONE_SCENE_PATTERN);
-      return { label, x: Number(x), t: Number(t) };
+      const match = segment.match(LIGHT_CONE_SCENE_PATTERN)!;
+      return { label: match[1]!, x: Number(match[2]), t: Number(match[3]) };
     }),
   );
 
@@ -102,7 +132,7 @@ export function decodeLightConeScene(scene = DEFAULT_LIGHT_CONE_SCENE) {
   }));
 }
 
-export function encodeLightConeScene(events) {
+export function encodeLightConeScene(events: Array<{ label?: string | null; x: number | string; t: number | string }> | null | undefined): string {
   const canonical = canonicalizeSceneEntries(events ?? []);
   if (canonical.length === 0) return EMPTY_LIGHT_CONE_SCENE;
 
@@ -111,7 +141,7 @@ export function encodeLightConeScene(events) {
     .join('|');
 }
 
-export function getNextLightConeLabel(events) {
+export function getNextLightConeLabel(events: Array<{ label?: string | null }> | null | undefined): string {
   const labels = (events ?? [])
     .map((event) => String(event.label ?? '').trim().toUpperCase())
     .filter(Boolean);
@@ -126,10 +156,10 @@ export function getNextLightConeLabel(events) {
   return highestCode >= 90 ? 'Z' : String.fromCharCode(highestCode + 1);
 }
 
-export function sanitizeJourneyState(input = {}) {
-  const lightConeEvents = decodeLightConeScene(input.lightConeScene ?? DEFAULT_JOURNEY_STATE.lightConeScene);
+export function sanitizeJourneyState(input: Record<string, unknown> = {}): JourneyState {
+  const lightConeEvents = decodeLightConeScene(String(input.lightConeScene ?? DEFAULT_JOURNEY_STATE.lightConeScene));
   const lightConeScene = encodeLightConeScene(lightConeEvents);
-  const selectedLabel = input.lightConeSelectedLabel;
+  const selectedLabel = input.lightConeSelectedLabel as string | null | undefined;
   const hasSelectedLabel = lightConeEvents.some((event) => event.label === selectedLabel);
   const rawBoostBeta = input.boostBeta;
   const boostBeta = rawBoostBeta === null || rawBoostBeta === undefined || rawBoostBeta === ''
@@ -141,21 +171,21 @@ export function sanitizeJourneyState(input = {}) {
     boostBeta,
     tripDistance: clampNumber(Number(input.tripDistance), 1, 10, DEFAULT_JOURNEY_STATE.tripDistance),
     accelFraction: clampNumber(Number(input.accelFraction), 0.01, 0.45, DEFAULT_JOURNEY_STATE.accelFraction),
-    twinMission: sanitizeMission(input.twinMission, TWIN_MISSION_IDS, DEFAULT_JOURNEY_STATE.twinMission),
-    boostMission: sanitizeMission(input.boostMission, BOOST_MISSION_IDS, DEFAULT_JOURNEY_STATE.boostMission),
-    frameMission: sanitizeMission(input.frameMission, FRAME_MISSION_IDS, DEFAULT_JOURNEY_STATE.frameMission),
-    lightConeMission: sanitizeMission(input.lightConeMission, LIGHT_CONE_MISSION_IDS, DEFAULT_JOURNEY_STATE.lightConeMission),
+    twinMission: sanitizeMission(input.twinMission as string | null | undefined, TWIN_MISSION_IDS, DEFAULT_JOURNEY_STATE.twinMission),
+    boostMission: sanitizeMission(input.boostMission as string | null | undefined, BOOST_MISSION_IDS, DEFAULT_JOURNEY_STATE.boostMission),
+    frameMission: sanitizeMission(input.frameMission as string | null | undefined, FRAME_MISSION_IDS, DEFAULT_JOURNEY_STATE.frameMission),
+    lightConeMission: sanitizeMission(input.lightConeMission as string | null | undefined, LIGHT_CONE_MISSION_IDS, DEFAULT_JOURNEY_STATE.lightConeMission),
     lightConeScene,
-    lightConeSelectedLabel: hasSelectedLabel ? selectedLabel : null,
+    lightConeSelectedLabel: hasSelectedLabel ? (selectedLabel as string) : null,
   };
 }
 
-export function parseAppStateFromSearch(search = '') {
+export function parseAppStateFromSearch(search: string = ''): AppState {
   const params = new URLSearchParams(search.startsWith('?') ? search : `?${search}`);
   const chapter = params.get('chapter');
 
   return {
-    activeExp: EXPERIENCE_IDS.includes(chapter) ? chapter : null,
+    activeExp: chapter !== null && EXPERIENCE_IDS.includes(chapter) ? chapter : null,
     journeyState: sanitizeJourneyState({
       beta: params.get('beta'),
       boostBeta: params.get('boostBeta'),
@@ -171,11 +201,11 @@ export function parseAppStateFromSearch(search = '') {
   };
 }
 
-export function buildSearchFromAppState({ activeExp = null, journeyState = DEFAULT_JOURNEY_STATE }) {
+export function buildSearchFromAppState({ activeExp = null, journeyState = DEFAULT_JOURNEY_STATE }: { activeExp?: string | null; journeyState?: JourneyState }): string {
   const params = new URLSearchParams();
-  const state = sanitizeJourneyState(journeyState);
+  const state = sanitizeJourneyState(journeyState as unknown as Record<string, unknown>);
 
-  if (EXPERIENCE_IDS.includes(activeExp)) params.set('chapter', activeExp);
+  if (activeExp !== null && EXPERIENCE_IDS.includes(activeExp)) params.set('chapter', activeExp);
   if (state.beta !== DEFAULT_JOURNEY_STATE.beta) params.set('beta', formatNumber(state.beta));
   if (state.boostBeta !== null && state.boostBeta !== state.beta) params.set('boostBeta', formatNumber(state.boostBeta));
   if (state.tripDistance !== DEFAULT_JOURNEY_STATE.tripDistance) params.set('tripDistance', formatNumber(state.tripDistance));
@@ -196,6 +226,11 @@ export function buildUrlFromAppState({
   journeyState = DEFAULT_JOURNEY_STATE,
   pathname = '/',
   hash = '',
-}) {
+}: {
+  activeExp?: string | null;
+  journeyState?: JourneyState;
+  pathname?: string;
+  hash?: string;
+}): string {
   return `${pathname}${buildSearchFromAppState({ activeExp, journeyState })}${hash}`;
 }

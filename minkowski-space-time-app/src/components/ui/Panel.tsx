@@ -1,6 +1,14 @@
-import { colors } from '../../rendering/theme.js';
+import React from 'react';
+import { colors } from '../../rendering/theme.ts';
 
-export function Panel({ title, children, style, titleStyle }) {
+export interface PanelProps {
+  title?: string;
+  children: React.ReactNode;
+  style?: React.CSSProperties;
+  titleStyle?: React.CSSProperties;
+}
+
+export function Panel({ title, children, style, titleStyle }: PanelProps) {
   return (
     <div style={{
       background: colors.panelBg,

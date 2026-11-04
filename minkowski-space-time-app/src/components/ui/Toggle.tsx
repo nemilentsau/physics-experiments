@@ -1,4 +1,14 @@
-export function Toggle({ label, checked, onChange, color = '#00e5cc', labelStyle }) {
+import React from 'react';
+
+export interface ToggleProps {
+  label: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  color?: string;
+  labelStyle?: React.CSSProperties;
+}
+
+export function Toggle({ label, checked, onChange, color = '#00e5cc', labelStyle }: ToggleProps) {
   return (
     <label style={{
       display: 'flex',

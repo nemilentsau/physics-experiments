@@ -1,4 +1,28 @@
-import { colors } from '../../rendering/theme.js';
+import { colors } from '../../rendering/theme.ts';
+
+export interface Mission {
+  id: string;
+  title: string;
+  summary: string;
+  objective: string;
+  successText: string;
+  action?: () => void;
+}
+
+export interface MissionStatus {
+  complete: boolean;
+  label: string;
+  detail: string;
+}
+
+export interface GuidedMissionPanelProps {
+  title?: string;
+  accent?: string;
+  missions: Mission[];
+  activeId: string;
+  onSelect: (id: string) => void;
+  status: MissionStatus | undefined;
+}
 
 export function GuidedMissionPanel({
   title = 'Guided Experiments',
@@ -7,10 +31,10 @@ export function GuidedMissionPanel({
   activeId,
   onSelect,
   status,
-}) {
-  const activeMission = missions.find((mission) => mission.id === activeId) ?? missions[0];
+}: GuidedMissionPanelProps) {
+  const activeMission = missions.find((mission) => mission.id === activeId) ?? missions[0]!;
   const activeIndex = missions.findIndex((mission) => mission.id === activeMission.id);
-  const nextMission = activeIndex >= 0 ? missions[activeIndex + 1] : null;
+  const nextMission = (activeIndex >= 0 ? missions[activeIndex + 1] : undefined) ?? null;
 
   return (
     <div style={{

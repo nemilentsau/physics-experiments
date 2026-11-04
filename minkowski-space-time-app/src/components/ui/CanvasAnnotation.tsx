@@ -1,3 +1,13 @@
+export interface CanvasAnnotationProps {
+  left: number;
+  top: number;
+  accent: string;
+  title: string;
+  body: string;
+  align?: 'left' | 'right';
+  compact?: boolean;
+}
+
 export function CanvasAnnotation({
   left,
   top,
@@ -6,7 +16,7 @@ export function CanvasAnnotation({
   body,
   align = 'left',
   compact = false,
-}) {
+}: CanvasAnnotationProps) {
   return (
     <div style={{
       position: 'absolute',

@@ -1,17 +1,17 @@
 import { useSyncExternalStore } from 'react';
 
-function subscribe(callback) {
+function subscribe(callback: () => void): () => void {
   if (typeof window === 'undefined') return () => {};
   window.addEventListener('resize', callback);
   return () => window.removeEventListener('resize', callback);
 }
 
-function getSnapshot() {
+function getSnapshot(): number {
   if (typeof window === 'undefined') return 1440;
   return window.innerWidth;
 }
 
-export function useViewport() {
+export function useViewport(): { width: number; isMobile: boolean; isTablet: boolean; isCompact: boolean } {
   const width = useSyncExternalStore(subscribe, getSnapshot, () => 1440);
   return {
     width,
